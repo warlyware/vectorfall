@@ -54,16 +54,16 @@ app.innerHTML = `
   </div>
   <div id="paused" class="paused hidden">PAUSED</div>
   <section id="lobby" class="lobby">
-    <form id="room-form" class="lobby-card">
+    <div class="lobby-card" role="group" aria-labelledby="lobby-title">
       <span class="eyebrow">PORTALS MULTIPLAYER</span>
-      <h1>JOIN FLIGHT SESSION</h1>
+      <h1 id="lobby-title">JOIN FLIGHT SESSION</h1>
       <p>Enter the same room code as the pilots you want to fly with.</p>
       <label for="room-code">ROOM CODE</label>
-      <input id="room-code" name="room" maxlength="48" autocomplete="off" placeholder="ALPHA-7" required />
-      <button id="join-room" type="submit">JOIN ROOM</button>
+      <input id="room-code" maxlength="48" autocomplete="off" placeholder="ALPHA-7" />
+      <button id="join-room" type="button">JOIN ROOM</button>
       <button id="offline-mode" class="secondary" type="button">PRACTICE OFFLINE</button>
       <output id="connection-message">READY</output>
-    </form>
+    </div>
   </section>
 `;
 
@@ -139,6 +139,7 @@ const localBulletMaterial = new THREE.MeshBasicMaterial({ color: 0x8ee8ff });
 const remoteBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xff6f88 });
 
 let config: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG };
+let localId = "local";
 let ship = createLocalShip();
 let paused = false;
 let showDiagnostics = false;
@@ -147,7 +148,6 @@ let weaponCooldown = 0;
 let respawnTimer = 0;
 let joined = false;
 let offline = false;
-let localId = "local";
 let activeRoom = "";
 let networkAccumulator = 0;
 const networkInterval = 0.12;
@@ -169,7 +169,6 @@ const diagnosticsPanel = getElement<HTMLElement>("diagnostics");
 const pausedOverlay = getElement<HTMLElement>("paused");
 const tuningControls = getElement<HTMLElement>("tuning-controls");
 const lobby = getElement<HTMLElement>("lobby");
-const roomForm = getElement<HTMLFormElement>("room-form");
 const roomCodeInput = getElement<HTMLInputElement>("room-code");
 const joinButton = getElement<HTMLButtonElement>("join-room");
 const offlineButton = getElement<HTMLButtonElement>("offline-mode");
@@ -203,7 +202,9 @@ const tuningFields: Array<{
 renderTuningControls();
 setupMultiplayerEvents();
 
-roomForm.addEventListener("submit", (event) => {
+joinButton.addEventListener("click", () => void joinRoom(roomCodeInput.value));
+roomCodeInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
   event.preventDefault();
   void joinRoom(roomCodeInput.value);
 });
@@ -264,6 +265,7 @@ function setupMultiplayerEvents(): void {
     updateRoster(players);
   });
   portalsNet.on("status", (status) => {
+    console.info("Portals multiplayer status", status);
     if (status !== "disconnected") return;
     joined = false;
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
@@ -283,8 +285,8 @@ async function joinRoom(rawCode: string): Promise<void> {
   joinButton.disabled = true;
   offlineButton.disabled = true;
   connectionMessage.textContent = "CONNECTING…";
+  const channel = `flight-${code}`;
   try {
-    const channel = `flight-${code}`;
     const session = await portalsNet.join({ channel });
     localId = session.self.id;
     activeRoom = code.toUpperCase();
@@ -298,8 +300,17 @@ async function joinRoom(rawCode: string): Promise<void> {
     lobby.classList.add("hidden");
     connectionMessage.textContent = "CONNECTED";
   } catch (error) {
-    connectionMessage.textContent = "MULTIPLAYER UNAVAILABLE — TRY AGAIN OR PRACTICE OFFLINE";
-    console.warn("Portals multiplayer join failed", error);
+    const detail = describeError(error);
+    const hostHint = window.parent === window
+      ? "OPEN THE GAME THROUGH ITS PORTALS GAME PAGE, NOT THE DIRECT DRAFT URL"
+      : detail;
+    connectionMessage.textContent = `JOIN FAILED — ${hostHint}`;
+    console.error("Portals multiplayer join failed", {
+      error,
+      detail,
+      embeddedInPortalsHost: window.parent !== window,
+      channel,
+    });
   } finally {
     joinButton.disabled = false;
     offlineButton.disabled = false;
@@ -810,6 +821,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message.toUpperCase();
+  if (isRecord(error)) {
+    const code = typeof error.code === "string" ? error.code : "";
+    const message = typeof error.message === "string" ? error.message : "";
+    const combined = [code, message].filter(Boolean).join(": ");
+    if (combined) return combined.toUpperCase();
+  }
+  if (typeof error === "string" && error) return error.toUpperCase();
+  return "UNKNOWN PORTALS SDK ERROR — CHECK THE BROWSER CONSOLE";
 }
 
 function clampNumber(value: number, min: number, max: number): number {
