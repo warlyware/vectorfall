@@ -3,10 +3,13 @@ import {
   createShip,
   circleIntersectsRect,
   circlesIntersect,
+  computeCpuCommand,
   DEFAULT_FLIGHT_CONFIG,
   fireBullet,
   type FlightInput,
+  type BulletState,
   resolveCircleAgainstRect,
+  resolveBulletAgainstRect,
   speedOf,
   stepBullet,
   stepShip,
@@ -96,17 +99,34 @@ describe("flight simulation", () => {
   });
 
   it("fires bullets forward with inherited ship velocity and an energy cost", () => {
-    const ship = createShip();
+    const firingConfig = {
+      ...DEFAULT_FLIGHT_CONFIG,
+      bulletEnergyCost: 6,
+      bulletSpeed: 520,
+      shipRadius: 13,
+    };
+    const ship = createShip(firingConfig);
     ship.angle = 0;
     ship.velocity = { x: 20, y: -5 };
 
-    const bullet = fireBullet(ship, DEFAULT_FLIGHT_CONFIG);
+    const bullet = fireBullet(ship, firingConfig);
 
     expect(bullet).not.toBeNull();
     expect(ship.energy).toBe(94);
     expect(bullet?.velocity.x).toBe(540);
     expect(bullet?.velocity.y).toBe(-5);
     expect(bullet?.position.x).toBe(19);
+  });
+
+  it("supports angled shots for a spread volley", () => {
+    const ship = createShip(DEFAULT_FLIGHT_CONFIG);
+    ship.angle = 0;
+
+    const bullet = fireBullet(ship, DEFAULT_FLIGHT_CONFIG, "local", Math.PI / 2);
+
+    expect(bullet).not.toBeNull();
+    expect(bullet?.velocity.x).toBeCloseTo(0);
+    expect(bullet?.velocity.y).toBeCloseTo(DEFAULT_FLIGHT_CONFIG.bulletSpeed);
   });
 
   it("advances bullets, expires them, and detects wall contact", () => {
@@ -124,8 +144,43 @@ describe("flight simulation", () => {
     ).toBe(true);
   });
 
+  it("reflects bullets away from walls instead of destroying them", () => {
+    const bullet: BulletState = {
+      position: { x: -1, y: 50 },
+      velocity: { x: 40, y: 0 },
+      lifetime: 1,
+      owner: "local",
+    };
+
+    const collided = resolveBulletAgainstRect(
+      bullet,
+      { x: 0, y: 0, width: 20, height: 100 },
+      3,
+      1,
+    );
+
+    expect(collided).toBe(true);
+    expect(bullet.position.x).toBe(-3);
+    expect(bullet.velocity.x).toBe(-40);
+  });
+
   it("detects bullet overlap with a ship", () => {
     expect(circlesIntersect({ x: 0, y: 0 }, 3, { x: 15, y: 0 }, 13)).toBe(true);
     expect(circlesIntersect({ x: 0, y: 0 }, 3, { x: 17, y: 0 }, 13)).toBe(false);
+  });
+
+  it("aims a CPU pilot at a nearby target and decides when to fire", () => {
+    const cpu = createShip();
+    cpu.position = { x: 0, y: 0 };
+    cpu.angle = 0;
+    const target = createShip();
+    target.position = { x: 240, y: 0 };
+
+    const command = computeCpuCommand(cpu, target, DEFAULT_FLIGHT_CONFIG);
+
+    expect(command.input.thrust).toBe(true);
+    expect(command.input.turnLeft).toBe(false);
+    expect(command.input.turnRight).toBe(false);
+    expect(command.shouldFire).toBe(true);
   });
 });

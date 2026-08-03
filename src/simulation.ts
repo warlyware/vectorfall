@@ -1,3 +1,5 @@
+import flightConfig from "./flight-config.json";
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -23,6 +25,11 @@ export interface FlightInput {
   turnLeft: boolean;
   turnRight: boolean;
   boost: boolean;
+}
+
+export interface CpuCommand {
+  input: FlightInput;
+  shouldFire: boolean;
 }
 
 export interface FlightConfig {
@@ -51,24 +58,7 @@ export interface Rect {
   height: number;
 }
 
-export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
-  thrust: 180,
-  reverseThrust: 105,
-  turnSpeed: 3.15,
-  maxSpeed: 275,
-  boostMultiplier: 1.8,
-  boostSpeedMultiplier: 1.42,
-  boostEnergyPerSecond: 28,
-  maxEnergy: 100,
-  energyRechargePerSecond: 17,
-  shipRadius: 13,
-  wallRestitution: 0.62,
-  bulletSpeed: 520,
-  bulletLifetime: 1.15,
-  bulletEnergyCost: 6,
-  bulletCooldown: 0.14,
-  bulletDamage: 14,
-};
+export const DEFAULT_FLIGHT_CONFIG: FlightConfig = flightConfig;
 
 export function createShip(config = DEFAULT_FLIGHT_CONFIG): ShipState {
   return {
@@ -87,10 +77,14 @@ export function fireBullet(
   ship: ShipState,
   config: FlightConfig,
   owner = "local",
+  angleOffset = 0,
 ): BulletState | null {
   if (ship.energy < config.bulletEnergyCost) return null;
 
-  const forward = { x: Math.cos(ship.angle), y: Math.sin(ship.angle) };
+  const forward = {
+    x: Math.cos(ship.angle + angleOffset),
+    y: Math.sin(ship.angle + angleOffset),
+  };
   ship.energy -= config.bulletEnergyCost;
 
   return {
@@ -113,6 +107,53 @@ export function stepBullet(bullet: BulletState, deltaSeconds: number): void {
   bullet.lifetime -= deltaSeconds;
 }
 
+export function resolveBulletAgainstRect(
+  bullet: BulletState,
+  rect: Rect,
+  radius: number,
+  restitution: number,
+): boolean {
+  const nearestX = clamp(bullet.position.x, rect.x, rect.x + rect.width);
+  const nearestY = clamp(bullet.position.y, rect.y, rect.y + rect.height);
+  let offsetX = bullet.position.x - nearestX;
+  let offsetY = bullet.position.y - nearestY;
+  let distance = Math.hypot(offsetX, offsetY);
+  let penetration: number;
+
+  if (distance >= radius) return false;
+
+  if (distance === 0) {
+    const distances = [
+      { distance: bullet.position.x - rect.x, x: -1, y: 0 },
+      { distance: rect.x + rect.width - bullet.position.x, x: 1, y: 0 },
+      { distance: bullet.position.y - rect.y, x: 0, y: -1 },
+      { distance: rect.y + rect.height - bullet.position.y, x: 0, y: 1 },
+    ];
+    const closest = distances.reduce((best, current) =>
+      current.distance < best.distance ? current : best,
+    );
+    offsetX = closest.x;
+    offsetY = closest.y;
+    penetration = closest.distance + radius;
+    distance = 1;
+  } else {
+    penetration = radius - distance;
+  }
+
+  const normalX = offsetX / distance;
+  const normalY = offsetY / distance;
+  bullet.position.x += normalX * penetration;
+  bullet.position.y += normalY * penetration;
+
+  const inwardSpeed = bullet.velocity.x * normalX + bullet.velocity.y * normalY;
+  if (inwardSpeed < 0) {
+    bullet.velocity.x -= (1 + restitution) * inwardSpeed * normalX;
+    bullet.velocity.y -= (1 + restitution) * inwardSpeed * normalY;
+  }
+
+  return true;
+}
+
 export function circleIntersectsRect(position: Vec2, radius: number, rect: Rect): boolean {
   const nearestX = clamp(position.x, rect.x, rect.x + rect.width);
   const nearestY = clamp(position.y, rect.y, rect.y + rect.height);
@@ -126,6 +167,37 @@ export function circlesIntersect(
   secondRadius: number,
 ): boolean {
   return Math.hypot(first.x - second.x, first.y - second.y) < firstRadius + secondRadius;
+}
+
+export function computeCpuCommand(
+  cpu: ShipState,
+  target: ShipState,
+  config: FlightConfig,
+): CpuCommand {
+  const directX = target.position.x - cpu.position.x;
+  const directY = target.position.y - cpu.position.y;
+  const distance = Math.hypot(directX, directY);
+  const leadTime = Math.min(distance / config.bulletSpeed, 0.65);
+  const desiredAngle = Math.atan2(
+    directY + target.velocity.y * leadTime,
+    directX + target.velocity.x * leadTime,
+  );
+  const angleError = normalizeAngle(desiredAngle - cpu.angle);
+  const aimError = Math.abs(angleError);
+
+  return {
+    input: {
+      thrust: distance > 230 && aimError < 0.85,
+      reverse: distance < 135 && aimError < 0.65,
+      turnLeft: angleError > 0.035,
+      turnRight: angleError < -0.035,
+      boost: distance > 500 && aimError < 0.3 && cpu.energy > config.maxEnergy * 0.45,
+    },
+    shouldFire:
+      aimError < 0.13 &&
+      distance < config.bulletSpeed * config.bulletLifetime * 0.9 &&
+      cpu.energy > config.bulletEnergyCost + config.bulletDamage,
+  };
 }
 
 export function stepShip(
@@ -221,4 +293,8 @@ export function resolveCircleAgainstRect(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
 }

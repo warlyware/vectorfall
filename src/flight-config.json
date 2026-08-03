@@ -1,0 +1,18 @@
+{
+  "thrust": 245,
+  "reverseThrust": 105,
+  "turnSpeed": 3.15,
+  "maxSpeed": 355,
+  "boostMultiplier": 1.8,
+  "boostSpeedMultiplier": 1.42,
+  "boostEnergyPerSecond": 28,
+  "maxEnergy": 100,
+  "energyRechargePerSecond": 17,
+  "shipRadius": 13,
+  "wallRestitution": 0.62,
+  "bulletSpeed": 520,
+  "bulletLifetime": 1.15,
+  "bulletEnergyCost": 5,
+  "bulletCooldown": 0.26,
+  "bulletDamage": 20
+}

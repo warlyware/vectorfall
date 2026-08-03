@@ -25,6 +25,7 @@ canvas {
 
 .title,
 .hud,
+.enemy-hud,
 .session-panel,
 .diagnostics,
 .controls,
@@ -85,6 +86,52 @@ canvas {
   background: #ff5577;
 }
 
+.powerup-status {
+  min-height: 12px;
+  margin-top: 7px;
+  color: #dcecff;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-align: right;
+}
+
+.enemy-hud {
+  top: 24px;
+  left: 50%;
+  width: min(280px, calc(100vw - 56px));
+  color: #a98291;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  transform: translateX(-50%);
+}
+
+.enemy-energy-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+#enemy-energy-value {
+  color: #ffd9df;
+}
+
+.enemy-energy-track {
+  height: 5px;
+  background: #261821;
+}
+
+#enemy-energy-fill {
+  width: 100%;
+  height: 100%;
+  background: #ff6f88;
+  box-shadow: 0 0 10px rgb(255 111 136 / 45%);
+  transition: background 120ms ease;
+}
+
+#enemy-energy-fill.low {
+  background: #ff304f;
+}
+
 dl {
   display: flex;
   justify-content: space-between;
@@ -129,10 +176,23 @@ dd {
 }
 
 .session-panel > button {
-  position: absolute;
-  top: 57px;
-  right: 12px;
+  display: block;
+  margin: 10px 0 0 auto;
   font-size: 9px;
+}
+
+.practice-controls {
+  display: flex;
+  gap: 7px;
+  margin: 11px 0 0;
+}
+
+.practice-controls button {
+  padding: 5px 6px;
+  border: 1px solid #294154;
+  color: #69ddff;
+  font-size: 8px;
+  letter-spacing: 0.06em;
 }
 
 .session-panel ul {
@@ -342,6 +402,11 @@ kbd {
   .hud {
     top: 60px;
     right: 18px;
+  }
+
+  .enemy-hud {
+    top: 18px;
+    width: min(220px, calc(100vw - 36px));
   }
 
   .diagnostics {
