@@ -210,18 +210,6 @@ app.innerHTML = `
       <p class="how-to-play-tip">Collect glowing powerups for temporary weapons and defenses. Solid wormholes transport ships across the arena.</p>
     </div>
   </section>
-  <section id="pilot-name-modal" class="controls-modal pilot-name-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pilot-name-title">
-    <div class="controls-card pilot-name-card">
-      <div class="controls-heading">
-        <div><span class="eyebrow">GUEST IDENTIFICATION</span><h2 id="pilot-name-title">CHOOSE PILOT NAME</h2></div>
-      </div>
-      <p>Your temporary name will identify you for this game session.</p>
-      <label for="pilot-name-input">PILOT NAME</label>
-      <input id="pilot-name-input" type="text" maxlength="20" autocomplete="nickname" placeholder="ENTER NAME" />
-      <output id="pilot-name-error" aria-live="polite"></output>
-      <button id="confirm-pilot-name" type="button">CONTINUE</button>
-    </div>
-  </section>
   <section id="settings-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="controls-card settings-card">
       <div class="controls-heading">
@@ -292,6 +280,7 @@ app.innerHTML = `
         <button id="open-rooms-menu" class="secondary" type="button"><span>BROWSE GAMES</span><small>LIST</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
         <button id="how-to-play" class="secondary" type="button" aria-haspopup="dialog" aria-controls="how-to-play-modal" aria-expanded="false"><span>HOW TO PLAY</span><small>GUIDE</small></button>
+        <button id="login-to-change-name" class="secondary login-name-button hidden" type="button"><span>LOG IN TO CUSTOMIZE</span><small>PORTALS</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
         <button class="lobby-back" data-lobby-back type="button">‹ BACK</button>
@@ -400,7 +389,7 @@ app.innerHTML = `
         <div id="room-list" class="room-list" aria-live="polite"></div>
         <button id="refresh-rooms" class="secondary" type="button"><span>REFRESH LIST</span><small>↻</small></button>
       </div>
-      <output id="connection-message">SYSTEM READY // INSERT CALLSIGN</output>
+      <output id="connection-message">SYSTEM READY</output>
     </div>
     <div class="arcade-footer"><span class="arcade-version">VERSION ${packageMetadata.version}</span></div>
   </section>
@@ -706,10 +695,9 @@ const wormholeColors = [
 ];
 
 let localId = "local";
-let localPortalIdentity: PortalsPlayer | null = null;
+let localPortalIdentity: PortalsIdentityPlayer | null = null;
 let temporaryPilotName = "";
 let pilotIdentityPromise: Promise<void> | null = null;
-let resolvePilotNamePrompt: ((name: string) => void) | null = null;
 const roomPilotNames = new Map<string, string>();
 let ship = createLocalShip();
 const previousLocalPosition: Vec2 = { ...ship.position };
@@ -852,10 +840,6 @@ const closeControlsButton = getElement<HTMLButtonElement>("close-controls");
 const howToPlayButton = getElement<HTMLButtonElement>("how-to-play");
 const howToPlayModal = getElement<HTMLElement>("how-to-play-modal");
 const closeHowToPlayButton = getElement<HTMLButtonElement>("close-how-to-play");
-const pilotNameModal = getElement<HTMLElement>("pilot-name-modal");
-const pilotNameInput = getElement<HTMLInputElement>("pilot-name-input");
-const pilotNameError = getElement<HTMLOutputElement>("pilot-name-error");
-const confirmPilotNameButton = getElement<HTMLButtonElement>("confirm-pilot-name");
 const tuningControls = getElement<HTMLElement>("tuning-controls");
 const lobby = getElement<HTMLElement>("lobby");
 const lobbyCard = getElement<HTMLElement>("lobby-card");
@@ -866,6 +850,7 @@ const lobbyRoomsMenu = getElement<HTMLElement>("lobby-rooms-menu");
 const openCreateMenuButton = getElement<HTMLButtonElement>("open-create-menu");
 const openJoinMenuButton = getElement<HTMLButtonElement>("open-join-menu");
 const openRoomsMenuButton = getElement<HTMLButtonElement>("open-rooms-menu");
+const loginToChangeNameButton = getElement<HTMLButtonElement>("login-to-change-name");
 const refreshRoomsButton = getElement<HTMLButtonElement>("refresh-rooms");
 const roomList = getElement<HTMLElement>("room-list");
 const createRoomButton = getElement<HTMLButtonElement>("create-room");
@@ -938,8 +923,9 @@ const spectatorHud = getElement<HTMLElement>("spectator-hud");
 const spectatorName = getElement<HTMLElement>("spectator-name");
 const spectatorPreviousButton = getElement<HTMLButtonElement>("spectator-previous");
 const spectatorNextButton = getElement<HTMLButtonElement>("spectator-next");
-const portalsNet = window.Portals?.net;
-const portalsVoice = window.Portals?.voice;
+const portalsSdk = window.Portals;
+const portalsNet = portalsSdk?.net;
+const portalsVoice = portalsSdk?.voice;
 const voiceChatEnabled = false;
 
 const tuningFields: Array<{
@@ -964,6 +950,7 @@ const tuningFields: Array<{
 renderTuningControls();
 setupMultiplayerEvents();
 setupVoiceEvents();
+setupIdentityEvents();
 
 if (!import.meta.env.DEV) {
   getElement<HTMLElement>("tune-control").classList.add("hidden");
@@ -1044,12 +1031,7 @@ closeHowToPlayButton.addEventListener("click", () => setHowToPlayModalVisible(fa
 howToPlayModal.addEventListener("pointerdown", (event) => {
   if (event.target === howToPlayModal) setHowToPlayModalVisible(false);
 });
-confirmPilotNameButton.addEventListener("click", submitTemporaryPilotName);
-pilotNameInput.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  event.preventDefault();
-  submitTemporaryPilotName();
-});
+loginToChangeNameButton.addEventListener("click", () => void requestPortalsLogin());
 getElement<HTMLButtonElement>("reset-tuning").addEventListener("click", () => {
   config = { ...DEFAULT_FLIGHT_CONFIG };
   ship.energy = Math.min(ship.energy, config.maxEnergy);
@@ -1091,10 +1073,6 @@ setupTouchControls();
 setupMobileJoystick();
 window.addEventListener("keydown", (event) => {
   arcadeAudio.unlock();
-  if (resolvePilotNamePrompt) {
-    if (event.code === "Escape") event.preventDefault();
-    return;
-  }
   if (event.code === "Escape" && howToPlayModalOpen) {
     event.preventDefault();
     setHowToPlayModalVisible(false);
@@ -1273,9 +1251,7 @@ function setLobbyMenu(view: "main" | "create" | "join" | "rooms"): void {
   lobbyCreateMenu.classList.toggle("hidden", view !== "create");
   lobbyJoinMenu.classList.toggle("hidden", view !== "join");
   lobbyRoomsMenu.classList.toggle("hidden", view !== "rooms");
-  connectionMessage.textContent = portalsNet
-    ? "SYSTEM READY // INSERT CALLSIGN"
-    : "PORTALS SDK UNAVAILABLE — OFFLINE PRACTICE ONLY";
+  connectionMessage.textContent = defaultLobbyStatus();
   if (view === "join") window.setTimeout(() => roomCodeInput.focus(), 0);
   if (view === "rooms") renderRoomDirectory();
 }
@@ -1380,6 +1356,43 @@ function setupMultiplayerEvents(): void {
   });
 }
 
+function setupIdentityEvents(): void {
+  updateLoginButtonVisibility();
+  if (!portalsSdk?.identity) return;
+  try {
+    portalsSdk.identity.onChange((player) => {
+      applyPortalIdentity(player);
+    });
+  } catch (error) {
+    console.info("Could not subscribe to Portals identity changes", error);
+  }
+}
+
+async function requestPortalsLogin(): Promise<void> {
+  const identity = portalsSdk?.identity;
+  if (!identity) {
+    connectionMessage.textContent = "PORTALS LOGIN UNAVAILABLE";
+    return;
+  }
+
+  loginToChangeNameButton.disabled = true;
+  connectionMessage.textContent = "OPENING PORTALS LOGIN…";
+  try {
+    // Portals requires this call to originate from the player's button action.
+    const player = await identity.requestLogin();
+    applyPortalIdentity(player);
+    connectionMessage.textContent = player.playerId
+      ? `SIGNED IN AS ${localPilotDisplayName().toUpperCase()}`
+      : `LOGIN NOT COMPLETED // GUEST CALLSIGN: ${ensureTemporaryPilotName().toUpperCase()}`;
+  } catch (error) {
+    connectionMessage.textContent = `LOGIN NOT COMPLETED — ${describeError(error)}`;
+    console.info("Portals sign-in was not completed", error);
+  } finally {
+    loginToChangeNameButton.disabled = false;
+    updateLoginButtonVisibility();
+  }
+}
+
 async function joinRoom(
   rawCode: string,
   createdSettings?: GameSettings,
@@ -1431,16 +1444,17 @@ async function joinRoom(
 async function ensureGlobalConnection(): Promise<void> {
   if (!portalsNet) throw new Error("Portals multiplayer unavailable");
   if (netConnected && portalsNet.self()) {
-    localPortalIdentity = portalsNet.self();
-    localId = localPortalIdentity!.id;
+    const self = portalsNet.self()!;
+    localId = self.id;
+    syncPortalIdentityFromNetwork(self);
     return;
   }
   if (!globalConnectionPromise) {
     globalConnectionPromise = (async () => {
       const session = await portalsNet.join({ channel: "global:vectorfall" });
       netConnected = true;
-      localPortalIdentity = session.self;
       localId = session.self.id;
+      syncPortalIdentityFromNetwork(session.self);
       serverAuthorityActive = isRecord(session.state["server:ready"]);
       receiveRoomDirectory(session.state["server:rooms"]);
     })();
@@ -1570,44 +1584,84 @@ function ensurePilotIdentity(): Promise<void> {
 }
 
 async function resolvePilotIdentity(): Promise<void> {
-  if (portalsNet) {
-    try {
-      await ensureGlobalConnection();
-    } catch (error) {
-      console.info("Portals identity unavailable; using a temporary pilot name", error);
-    }
-  }
-  localPortalIdentity = portalsNet?.self() ?? null;
-  const portalName = normalizePilotName(localPortalIdentity?.displayName ?? "");
-  if (localPortalIdentity?.playerId && portalName) return;
-  temporaryPilotName = await promptForTemporaryPilotName();
-}
-
-function promptForTemporaryPilotName(): Promise<string> {
-  if (temporaryPilotName) return Promise.resolve(temporaryPilotName);
-  pilotNameInput.value = "";
-  pilotNameError.textContent = "";
-  pilotNameModal.classList.remove("hidden");
-  window.setTimeout(() => pilotNameInput.focus(), 0);
-  return new Promise((resolve) => {
-    resolvePilotNamePrompt = resolve;
-  });
-}
-
-function submitTemporaryPilotName(): void {
-  const name = normalizePilotName(pilotNameInput.value);
-  if (!name) {
-    pilotNameError.textContent = "ENTER A PILOT NAME TO CONTINUE";
-    pilotNameInput.focus();
+  ensureTemporaryPilotName();
+  if (!portalsSdk) {
+    renderIdentityUi();
     return;
   }
-  temporaryPilotName = name;
-  pilotNameModal.classList.add("hidden");
-  pilotNameError.textContent = "";
-  const resolve = resolvePilotNamePrompt;
-  resolvePilotNamePrompt = null;
-  resolve?.(name);
-  if (joined) broadcastPilotProfile();
+
+  try {
+    const player = portalsSdk.ready
+      ? (await portalsSdk.ready()).player
+      : portalsSdk.getPlayer ? await portalsSdk.getPlayer() : portalsNet?.self() ?? null;
+    if (player) applyPortalIdentity(player);
+    else renderIdentityUi();
+  } catch (error) {
+    renderIdentityUi();
+    console.info("Portals identity unavailable; using a random temporary pilot name", error);
+  }
+}
+
+function syncPortalIdentityFromNetwork(player: PortalsPlayer): void {
+  if (localPortalIdentity?.playerId && !player.playerId) return;
+  applyPortalIdentity(player);
+}
+
+function applyPortalIdentity(player: PortalsIdentityPlayer): void {
+  localPortalIdentity = {
+    playerId: player.playerId,
+    displayName: player.displayName,
+    avatarUrl: player.avatarUrl,
+  };
+  if (!player.playerId) ensureTemporaryPilotName();
+  renderIdentityUi();
+  if (joined && !player.playerId) broadcastPilotProfile();
+  if (joined || offline) {
+    refreshCurrentRoster();
+    renderLeaderboard();
+  }
+}
+
+function renderIdentityUi(): void {
+  updateLoginButtonVisibility();
+  if (!lobby.classList.contains("hidden")) connectionMessage.textContent = defaultLobbyStatus();
+}
+
+function updateLoginButtonVisibility(): void {
+  const canLogin = Boolean(portalsSdk?.identity);
+  const signedIn = Boolean(localPortalIdentity?.playerId);
+  loginToChangeNameButton.classList.toggle("hidden", !canLogin || signedIn);
+}
+
+function defaultLobbyStatus(): string {
+  if (!portalsNet) return "PORTALS SDK UNAVAILABLE — OFFLINE PRACTICE ONLY";
+  if (localPortalIdentity?.playerId) {
+    return `SIGNED IN AS ${localPilotDisplayName().toUpperCase()}`;
+  }
+  return `GUEST CALLSIGN: ${ensureTemporaryPilotName().toUpperCase()}`;
+}
+
+function ensureTemporaryPilotName(): string {
+  if (!temporaryPilotName) temporaryPilotName = createTemporaryPilotName();
+  return temporaryPilotName;
+}
+
+function createTemporaryPilotName(): string {
+  const adjectives = ["Nova", "Solar", "Cosmic", "Rogue", "Neon", "Silent", "Iron", "Turbo"];
+  const nouns = ["Falcon", "Comet", "Viper", "Arrow", "Meteor", "Phantom", "Ranger", "Voyager"];
+  const adjective = adjectives[randomIdentityInteger(adjectives.length)];
+  const noun = nouns[randomIdentityInteger(nouns.length)];
+  const suffix = String(randomIdentityInteger(10_000)).padStart(4, "0");
+  return `${adjective} ${noun} ${suffix}`;
+}
+
+function randomIdentityInteger(maximum: number): number {
+  if (globalThis.crypto?.getRandomValues) {
+    const value = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(value);
+    return value[0] % maximum;
+  }
+  return Math.floor(Math.random() * maximum);
 }
 
 function normalizePilotName(value: string): string {
@@ -1816,7 +1870,10 @@ function normalizeRoomCode(value: string): string {
 }
 
 function broadcastPilotProfile(): void {
-  if (!joined || !portalsNet || !temporaryPilotName || !activeRoomStream) return;
+  if (
+    !joined || !portalsNet || localPortalIdentity?.playerId ||
+    !temporaryPilotName || !activeRoomStream
+  ) return;
   roomPilotNames.set(localId, temporaryPilotName);
   portalsNet.send({
     kind: "pilot-profile",
@@ -2223,19 +2280,17 @@ function multiplayerDisplayName(id: string): string | null {
 
 function localPilotDisplayName(): string {
   const portalName = normalizePilotName(localPortalIdentity?.displayName ?? "");
-  if (localPortalIdentity?.playerId && portalName) return portalName;
-  return temporaryPilotName || portalName || "PILOT";
+  if (localPortalIdentity?.playerId) return portalName || "PORTALS PILOT";
+  return ensureTemporaryPilotName();
 }
 
 function portalPlayer(id: string): PortalsPlayer | null {
-  if (localPortalIdentity?.id === id) return localPortalIdentity;
+  if (id === localId) return portalsNet?.self() ?? null;
   return portalsNet?.players().find((candidate) => candidate.id === id) ?? null;
 }
 
 function isLoggedInPilot(id: string): boolean {
-  if (id === localId || localPortalIdentity?.id === id) {
-    return Boolean(localPortalIdentity?.playerId);
-  }
+  if (id === localId) return Boolean(localPortalIdentity?.playerId);
   return Boolean(portalPlayer(id)?.playerId);
 }
 
@@ -3079,7 +3134,7 @@ function resetTouchInput(): void {
 }
 
 function pollGamepad(): void {
-  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen || howToPlayModalOpen || resolvePilotNamePrompt) {
+  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen || howToPlayModalOpen) {
     resetGamepadInput();
     updateInput();
     return;

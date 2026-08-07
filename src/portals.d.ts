@@ -5,6 +5,22 @@ interface PortalsPlayer {
   avatarUrl: string | null;
 }
 
+interface PortalsIdentityPlayer {
+  playerId: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+interface PortalsHostSession {
+  context: "standalone" | "room";
+  player: PortalsIdentityPlayer;
+}
+
+interface PortalsIdentity {
+  requestLogin(): Promise<PortalsIdentityPlayer>;
+  onChange(listener: (player: PortalsIdentityPlayer) => void): () => void;
+}
+
 interface PortalsSession {
   self: PortalsPlayer;
   players: PortalsPlayer[];
@@ -52,6 +68,10 @@ interface PortalsNet {
 
 interface Window {
   Portals?: {
+    readonly version?: string;
+    ready?(): Promise<PortalsHostSession>;
+    getPlayer?(): Promise<PortalsIdentityPlayer>;
+    readonly identity?: PortalsIdentity;
     net: PortalsNet;
     voice?: PortalsVoice;
   };
