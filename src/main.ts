@@ -101,7 +101,7 @@ app.innerHTML = `
     <p>Settings affect only your local ship.</p>
   </aside>
   <button id="help-button" class="help-button" type="button" aria-label="Open controls" aria-haspopup="dialog" aria-controls="controls-modal" aria-expanded="false">?</button>
-  <button id="live-leave" class="live-leave hidden" type="button">LEAVE MATCH</button>
+  <button id="settings-button" class="settings-button hidden" type="button" aria-label="Open settings" aria-haspopup="dialog" aria-controls="settings-modal" aria-expanded="false">⚙</button>
   <section id="controls-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
     <div class="controls-card">
       <div class="controls-heading">
@@ -132,6 +132,15 @@ app.innerHTML = `
       </div>
     </div>
   </section>
+  <section id="settings-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="controls-card settings-card">
+      <div class="controls-heading">
+        <div><span class="eyebrow">SYSTEM MENU</span><h2 id="settings-title">SETTINGS</h2></div>
+        <button id="close-settings" class="close-controls" type="button" aria-label="Close settings">×</button>
+      </div>
+      <button id="settings-leave-match" class="settings-leave-match" type="button">LEAVE MATCH</button>
+    </div>
+  </section>
   <div id="paused" class="paused hidden">PAUSED</div>
   <section id="lobby" class="lobby">
     <div class="lobby-art" aria-hidden="true"></div>
@@ -151,7 +160,6 @@ app.innerHTML = `
         <button id="open-create-menu" type="button"><span>CREATE GAME</span><small>HOST</small></button>
         <button id="open-join-menu" class="secondary" type="button"><span>JOIN GAME</span><small>CODE</small></button>
         <button id="open-rooms-menu" class="secondary" type="button"><span>PUBLIC GAMES</span><small>LIST</small></button>
-        <button id="quick-match" class="secondary" type="button"><span>QUICK MATCH</span><small>AUTO</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
@@ -593,7 +601,6 @@ const lobbyRoomsMenu = getElement<HTMLElement>("lobby-rooms-menu");
 const openCreateMenuButton = getElement<HTMLButtonElement>("open-create-menu");
 const openJoinMenuButton = getElement<HTMLButtonElement>("open-join-menu");
 const openRoomsMenuButton = getElement<HTMLButtonElement>("open-rooms-menu");
-const quickMatchButton = getElement<HTMLButtonElement>("quick-match");
 const roomsQuickMatchButton = getElement<HTMLButtonElement>("rooms-quick-match");
 const refreshRoomsButton = getElement<HTMLButtonElement>("refresh-rooms");
 const roomList = getElement<HTMLElement>("room-list");
@@ -625,9 +632,13 @@ const chatForm = getElement<HTMLFormElement>("chat-form");
 const chatInput = getElement<HTMLInputElement>("chat-input");
 const voiceStatus = getElement<HTMLElement>("voice-status");
 const voiceToggle = getElement<HTMLButtonElement>("voice-toggle");
-const liveLeaveButton = getElement<HTMLButtonElement>("live-leave");
+const settingsButton = getElement<HTMLButtonElement>("settings-button");
+const settingsModal = getElement<HTMLElement>("settings-modal");
+const closeSettingsButton = getElement<HTMLButtonElement>("close-settings");
+const settingsLeaveMatchButton = getElement<HTMLButtonElement>("settings-leave-match");
 const portalsNet = window.Portals?.net;
 const portalsVoice = window.Portals?.voice;
+const voiceChatEnabled = false;
 
 const tuningFields: Array<{
   key: keyof FlightConfig;
@@ -663,7 +674,6 @@ openCreateMenuButton.addEventListener("click", () => {
 });
 openJoinMenuButton.addEventListener("click", () => setLobbyMenu("join"));
 openRoomsMenuButton.addEventListener("click", () => void openRoomBrowser());
-quickMatchButton.addEventListener("click", () => void quickMatch());
 roomsQuickMatchButton.addEventListener("click", () => void quickMatch());
 refreshRoomsButton.addEventListener("click", () => void refreshRoomDirectory());
 document.querySelectorAll<HTMLButtonElement>("[data-lobby-back]").forEach((button) => {
@@ -684,7 +694,15 @@ roomCodeInput.addEventListener("keydown", (event) => {
 
 offlineButton.addEventListener("click", () => startOffline());
 getElement<HTMLButtonElement>("leave-room").addEventListener("click", () => leaveRoom());
-liveLeaveButton.addEventListener("click", () => leaveRoom());
+settingsButton.addEventListener("click", () => setSettingsModalVisible(true));
+closeSettingsButton.addEventListener("click", () => setSettingsModalVisible(false));
+settingsModal.addEventListener("pointerdown", (event) => {
+  if (event.target === settingsModal) setSettingsModalVisible(false);
+});
+settingsLeaveMatchButton.addEventListener("click", () => {
+  setSettingsModalVisible(false);
+  leaveRoom();
+});
 addCpuButton.addEventListener("click", () => spawnCpu());
 removeCpuButton.addEventListener("click", () => removeCpu());
 chatForm.addEventListener("submit", (event) => {
@@ -714,7 +732,6 @@ if (!portalsNet) {
   joinButton.disabled = true;
   createRoomButton.disabled = true;
   openRoomsMenuButton.disabled = true;
-  quickMatchButton.disabled = true;
   roomsQuickMatchButton.disabled = true;
   refreshRoomsButton.disabled = true;
 }
@@ -729,14 +746,20 @@ let gamepadBoost = false;
 let gamepadFire = false;
 let gamepadPauseWasDown = false;
 let controlsModalOpen = false;
+let settingsModalOpen = false;
 window.addEventListener("keydown", (event) => {
   arcadeAudio.unlock();
+  if (event.code === "Escape" && settingsModalOpen) {
+    event.preventDefault();
+    setSettingsModalVisible(false);
+    return;
+  }
   if (event.code === "Escape" && controlsModalOpen) {
     event.preventDefault();
     setControlsModalVisible(false);
     return;
   }
-  if (controlsModalOpen) return;
+  if (controlsModalOpen || settingsModalOpen) return;
   if (isTextEntryTarget(event.target)) return;
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
@@ -781,7 +804,7 @@ canvas.addEventListener(
 );
 
 function setupVoiceEvents(): void {
-  if (!portalsVoice) {
+  if (!voiceChatEnabled || !portalsVoice) {
     renderVoiceUnavailable();
     return;
   }
@@ -811,7 +834,7 @@ function setupVoiceEvents(): void {
 }
 
 async function startVoice(channel: string): Promise<void> {
-  if (!portalsVoice || !joined || !channel || voiceJoined) return;
+  if (!voiceChatEnabled || !portalsVoice || !joined || !channel || voiceJoined) return;
   const token = ++voiceJoinToken;
   voiceStatus.textContent = "VOICE CONNECTING…";
   voiceToggle.disabled = true;
@@ -947,7 +970,9 @@ function setupMultiplayerEvents(): void {
     resetUnknownEnemyNumbers();
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
     showLobby();
-    liveLeaveButton.classList.add("hidden");
+    settingsButton.classList.add("hidden");
+    settingsModal.classList.add("hidden");
+    settingsModalOpen = false;
     clearRemotePilots();
     clearExplosions();
     resetPowerupState();
@@ -1165,13 +1190,12 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   roomName.textContent = activeRoom;
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
-  liveLeaveButton.classList.remove("hidden");
+  settingsButton.classList.remove("hidden");
   practiceControls.classList.add("hidden");
   lobby.classList.add("hidden");
   clearChat();
-  setChatVisible(true);
+  setChatVisible(false);
   appendChatSystem(`CONNECTED TO ${activeRoom}`);
-  void startVoice(activeChannel);
   connectionMessage.textContent = "SERVER READY — SYNCHRONIZING…";
 }
 
@@ -1216,7 +1240,7 @@ function startOffline(): void {
   roomName.textContent = "OFFLINE";
   sessionPanel.classList.add("practice-session");
   sessionPanel.classList.remove("hidden");
-  liveLeaveButton.classList.add("hidden");
+  settingsButton.classList.add("hidden");
   practiceControls.classList.remove("hidden");
   lobby.classList.add("hidden");
 }
@@ -1248,7 +1272,9 @@ function leaveRoom(): void {
   practiceControls.classList.add("hidden");
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
-  liveLeaveButton.classList.add("hidden");
+  settingsButton.classList.add("hidden");
+  settingsModal.classList.add("hidden");
+  settingsModalOpen = false;
   showLobby();
 }
 
@@ -2052,7 +2078,7 @@ function updateInput(): void {
 }
 
 function pollGamepad(): void {
-  if (controlsModalOpen) {
+  if (controlsModalOpen || settingsModalOpen) {
     resetGamepadInput();
     updateInput();
     return;
@@ -3750,6 +3776,20 @@ function setControlsModalVisible(visible: boolean): void {
     closeControlsButton.focus();
   } else {
     helpButton.focus();
+  }
+}
+
+function setSettingsModalVisible(visible: boolean): void {
+  settingsModalOpen = visible;
+  settingsModal.classList.toggle("hidden", !visible);
+  settingsButton.setAttribute("aria-expanded", String(visible));
+  if (visible) {
+    heldKeys.clear();
+    resetGamepadInput();
+    updateInput();
+    closeSettingsButton.focus();
+  } else if (!settingsButton.classList.contains("hidden")) {
+    settingsButton.focus();
   }
 }
 

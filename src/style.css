@@ -553,7 +553,8 @@ kbd {
   font: inherit;
 }
 
-.help-button {
+.help-button,
+.settings-button {
   position: fixed;
   right: 24px;
   bottom: 22px;
@@ -570,31 +571,40 @@ kbd {
   transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 
+.settings-button {
+  right: 76px;
+  font-size: 17px;
+}
+
 .help-button:hover,
-.help-button:focus-visible {
+.help-button:focus-visible,
+.settings-button:hover,
+.settings-button:focus-visible {
   border-color: #bcecff;
   box-shadow: 0 0 24px rgb(73 196 255 / 32%), inset 0 0 12px rgb(73 196 255 / 14%);
   outline: none;
   transform: translateY(-2px);
 }
 
-.live-leave {
-  position: fixed;
-  right: 24px;
-  bottom: 72px;
-  z-index: 4;
-  padding: 7px 9px;
-  border: 1px solid rgb(83 104 122 / 72%);
-  background: rgb(7 14 23 / 82%);
-  color: #8da6ba;
-  font-size: 8px;
-  letter-spacing: 0.1em;
+.settings-card {
+  width: min(410px, 100%);
 }
 
-.live-leave:hover,
-.live-leave:focus-visible {
-  border-color: #bcecff;
-  color: #dcecff;
+.settings-leave-match {
+  width: 100%;
+  margin-top: 20px;
+  padding: 11px 13px;
+  border: 1px solid rgb(255 85 119 / 62%);
+  background: rgb(65 12 28 / 52%);
+  color: #ff9bae;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+}
+
+.settings-leave-match:hover,
+.settings-leave-match:focus-visible {
+  border-color: #ff9bae;
+  background: rgb(94 18 39 / 68%);
   outline: none;
 }
 
@@ -1269,9 +1279,9 @@ kbd {
     bottom: 18px;
   }
 
-  .live-leave {
-    right: 18px;
-    bottom: 68px;
+  .settings-button {
+    right: 70px;
+    bottom: 18px;
   }
 
   .controls-modal {
