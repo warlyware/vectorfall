@@ -15,7 +15,9 @@ The sandbox includes:
 - pixelated ship-destruction explosions with expanding shockwaves;
 - synchronized arena powerups that spawn every 10–30 seconds;
 - shield and triple-cannon powerups available to local, CPU, and hosted-room players;
+- synchronized paired wormholes that spawn every 10–20 seconds and last 20 seconds;
 - room-code multiplayer using the hosted Portals SDK;
+- room text chat over the Portals relay and optional Portals voice chat;
 - interpolated remote ships and relayed projectile events;
 - local damage, death, and respawn for lightweight multiplayer combat;
 - an offline practice fallback when the Portals transport is unavailable;
@@ -38,6 +40,7 @@ The sandbox includes:
 | Shift | Afterburner while thrusting |
 | Space | Fire bullets |
 | Gamepad | Left stick / D-pad fly; A or RB fire; RT boost; Y respawn; Start pause |
+| Chat | Send room text messages from the communications panel |
 | Mouse wheel | Zoom camera in or out |
 | Practice panel | Add or remove CPU opponents while offline |
 | Backquote | Toggle diagnostics and tuning |
