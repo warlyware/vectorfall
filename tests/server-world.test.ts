@@ -63,7 +63,7 @@ describe("authoritative server world", () => {
     expect(snapshot.events).toContainEqual(["fire", "pilot", "standard", 1]);
   });
 
-  it("charges twenty percent more energy for a laser shot", () => {
+  it("charges the standard per-shot energy cost for a laser", () => {
     const world = new ServerWorld();
     world.configure({ map: "open", powerups: [], wormholes: false });
     world.addPlayer("laser-pilot", 0);
@@ -74,7 +74,7 @@ describe("authoritative server world", () => {
     world.setInput("laser-pilot", { q: 1, m: 0, f: true }, 0);
     world.step(0.009, 9);
 
-    expect(world.takeSnapshot().ships[0][6]).toBe(94);
+    expect(world.takeSnapshot().ships[0][6]).toBe(95);
   });
 
   it("awards kills, penalizes deaths, and resets a completed top-score round", () => {
@@ -103,8 +103,22 @@ describe("authoritative server world", () => {
     const winningSnapshot = world.takeSnapshot();
     expect(winningSnapshot.events).toContainEqual(["win", "winner"]);
     expect(winningSnapshot.ships.find((ship) => ship[0] === "winner")?.[15]).toBe(1);
-    for (let frame = 1; frame <= 36; frame += 1) world.step(0.1, 100 + frame * 100);
+    for (let frame = 1; frame <= 205; frame += 1) world.step(0.1, 100 + frame * 100);
     expect(world.takeSnapshot().ships.every((ship) => ship[15] === 0)).toBe(true);
+  });
+
+  it("freezes the world for the three-second opening countdown", () => {
+    const world = new ServerWorld();
+    world.addPlayer("pilot", 0);
+    world.startMatchCountdown();
+    const before = world.takeSnapshot();
+    world.setInput("pilot", { q: 1, m: 1, f: false }, 0);
+    for (let frame = 1; frame <= 20; frame += 1) world.step(0.1, frame * 100);
+    const during = world.takeSnapshot();
+    expect(during.round[0]).toBe(1);
+    expect(during.ships[0][1]).toBe(before.ships[0][1]);
+    for (let frame = 21; frame <= 32; frame += 1) world.step(0.1, frame * 100);
+    expect(world.takeSnapshot().round[0]).toBe(0);
   });
 
   it("keeps kill and death scores during endless play", () => {

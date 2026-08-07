@@ -158,6 +158,11 @@ app.innerHTML = `
     <strong id="winner-message"></strong>
     <div id="confetti" class="confetti" aria-hidden="true"></div>
   </div>
+  <section id="round-countdown" class="round-countdown hidden" aria-live="assertive">
+    <span id="round-countdown-label">MATCH STARTS IN</span>
+    <strong id="round-countdown-value">3</strong>
+    <button id="countdown-leaderboard" class="hidden" type="button">VIEW FULL LEADERBOARD</button>
+  </section>
   <div id="paused" class="paused hidden">PAUSED</div>
   <section id="lobby" class="lobby">
     <div class="lobby-art" aria-hidden="true"></div>
@@ -175,8 +180,8 @@ app.innerHTML = `
         <h2 id="mode-title">SELECT FLIGHT MODE</h2>
         <p>Establish a new combat sector, join an active frequency, or enter solo simulation.</p>
         <button id="open-create-menu" type="button"><span>CREATE GAME</span><small>HOST</small></button>
-        <button id="open-join-menu" class="secondary" type="button"><span>JOIN GAME</span><small>CODE</small></button>
-        <button id="open-rooms-menu" class="secondary" type="button"><span>PUBLIC GAMES</span><small>LIST</small></button>
+        <button id="open-join-menu" class="secondary" type="button"><span>JOIN WITH CODE</span><small>CODE</small></button>
+        <button id="open-rooms-menu" class="secondary" type="button"><span>BROWSE GAMES</span><small>LIST</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
@@ -253,8 +258,7 @@ app.innerHTML = `
       <div id="lobby-rooms-menu" class="lobby-menu-view hidden">
         <button class="lobby-back" data-lobby-back type="button">‹ BACK</button>
         <h2>PUBLIC GAMES</h2>
-        <p>Select a live global match or use Quick Match to find the best available room.</p>
-        <button id="rooms-quick-match" type="button"><span>QUICK MATCH</span><small>AUTO</small></button>
+        <p>Select a live global match from the directory.</p>
         <div id="room-list" class="room-list" aria-live="polite"></div>
         <button id="refresh-rooms" class="secondary" type="button"><span>REFRESH LIST</span><small>↻</small></button>
       </div>
@@ -500,7 +504,6 @@ const shieldCapacity = 100;
 const tripleShotDuration = 18;
 const homingMissileDuration = 7;
 const laserDuration = 12;
-const laserEnergyMultiplier = 1.2;
 const maxActivePowerups = 4;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -578,6 +581,9 @@ let unknownEnemyCounter = 0;
 const playerScores = new Map<string, number>();
 let leaderboardModalOpen = false;
 let winnerCelebrationTimer: number | undefined;
+let serverRoundPhase: "countdown" | "playing" | "intermission" = "playing";
+let serverRoundTimer = 0;
+let offlineRoundTimer = 0;
 
 interface PublicRoomListing {
   code: string;
@@ -586,6 +592,7 @@ interface PublicRoomListing {
   map: ArenaMapId;
   active: boolean;
   allowJoinInProgress: boolean;
+  gameMode: "endless" | "top-score";
 }
 
 let publicRoomListings: PublicRoomListing[] = [];
@@ -635,7 +642,6 @@ const lobbyRoomsMenu = getElement<HTMLElement>("lobby-rooms-menu");
 const openCreateMenuButton = getElement<HTMLButtonElement>("open-create-menu");
 const openJoinMenuButton = getElement<HTMLButtonElement>("open-join-menu");
 const openRoomsMenuButton = getElement<HTMLButtonElement>("open-rooms-menu");
-const roomsQuickMatchButton = getElement<HTMLButtonElement>("rooms-quick-match");
 const refreshRoomsButton = getElement<HTMLButtonElement>("refresh-rooms");
 const roomList = getElement<HTMLElement>("room-list");
 const createRoomButton = getElement<HTMLButtonElement>("create-room");
@@ -682,6 +688,10 @@ const leaderboardAll = getElement<HTMLOListElement>("leaderboard-all");
 const winnerCelebration = getElement<HTMLElement>("winner-celebration");
 const winnerMessage = getElement<HTMLElement>("winner-message");
 const confetti = getElement<HTMLElement>("confetti");
+const roundCountdown = getElement<HTMLElement>("round-countdown");
+const roundCountdownLabel = getElement<HTMLElement>("round-countdown-label");
+const roundCountdownValue = getElement<HTMLElement>("round-countdown-value");
+const countdownLeaderboardButton = getElement<HTMLButtonElement>("countdown-leaderboard");
 const portalsNet = window.Portals?.net;
 const portalsVoice = window.Portals?.voice;
 const voiceChatEnabled = false;
@@ -720,7 +730,6 @@ openCreateMenuButton.addEventListener("click", () => {
 });
 openJoinMenuButton.addEventListener("click", () => setLobbyMenu("join"));
 openRoomsMenuButton.addEventListener("click", () => void openRoomBrowser());
-roomsQuickMatchButton.addEventListener("click", () => void quickMatch());
 refreshRoomsButton.addEventListener("click", () => void refreshRoomDirectory());
 document.querySelectorAll<HTMLButtonElement>("[data-lobby-back]").forEach((button) => {
   button.addEventListener("click", () => setLobbyMenu("main"));
@@ -753,6 +762,7 @@ settingsLeaveMatchButton.addEventListener("click", () => {
   leaveRoom();
 });
 expandLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(true));
+countdownLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(true));
 closeLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(false));
 leaderboardModal.addEventListener("pointerdown", (event) => {
   if (event.target === leaderboardModal) setLeaderboardModalVisible(false);
@@ -786,7 +796,6 @@ if (!portalsNet) {
   joinButton.disabled = true;
   createRoomButton.disabled = true;
   openRoomsMenuButton.disabled = true;
-  roomsQuickMatchButton.disabled = true;
   refreshRoomsButton.disabled = true;
 }
 
@@ -1039,6 +1048,7 @@ function setupMultiplayerEvents(): void {
     leaderboardModal.classList.add("hidden");
     leaderboardModalOpen = false;
     hideWinnerCelebration();
+    hideRoundCountdown();
     settingsModal.classList.add("hidden");
     settingsModalOpen = false;
     clearRemotePilots();
@@ -1143,18 +1153,6 @@ async function refreshRoomDirectory(): Promise<void> {
   }
 }
 
-async function quickMatch(): Promise<void> {
-  if (!portalsNet || pendingRoomRequest) return;
-  connectionMessage.textContent = "SEARCHING FOR MATCH…";
-  try {
-    await ensureGlobalConnection();
-    isGameCreator = false;
-    queueRoomRequest({ k: "matchmake" });
-  } catch (error) {
-    connectionMessage.textContent = `MATCHMAKING UNAVAILABLE — ${describeError(error)}`;
-  }
-}
-
 function receiveRoomDirectory(value: unknown): void {
   if (!Array.isArray(value)) return;
   publicRoomListings = value.flatMap((row): PublicRoomListing[] => {
@@ -1162,7 +1160,8 @@ function receiveRoomDirectory(value: unknown): void {
       !Array.isArray(row) || typeof row[0] !== "string" ||
       !Number.isInteger(row[1]) || !Number.isInteger(row[2]) ||
       !isArenaMapId(row[3]) || (row[4] !== 0 && row[4] !== 1) ||
-      (row[5] !== 0 && row[5] !== 1)
+      (row[5] !== 0 && row[5] !== 1) ||
+      (row[6] !== "endless" && row[6] !== "top-score")
     ) return [];
     return [{
       code: row[0],
@@ -1171,6 +1170,7 @@ function receiveRoomDirectory(value: unknown): void {
       map: row[3],
       active: row[4] === 1,
       allowJoinInProgress: row[5] === 1,
+      gameMode: row[6],
     }];
   });
   renderRoomDirectory();
@@ -1204,7 +1204,7 @@ function renderRoomDirectory(): void {
   if (publicRoomListings.length === 0) {
     const empty = document.createElement("p");
     empty.className = "room-list-empty";
-    empty.textContent = netConnected ? "NO PUBLIC GAMES — QUICK MATCH WILL CREATE ONE" : "CONNECT TO LOAD PUBLIC GAMES";
+    empty.textContent = netConnected ? "NO PUBLIC GAMES — CREATE ONE TO GET STARTED" : "CONNECT TO LOAD PUBLIC GAMES";
     roomList.append(empty);
     return;
   }
@@ -1216,7 +1216,11 @@ function renderRoomDirectory(): void {
     title.textContent = room.code.toUpperCase();
     const meta = document.createElement("span");
     const joinable = room.players < room.capacity && (!room.active || room.allowJoinInProgress);
-    meta.textContent = `${room.map.toUpperCase()} · ${room.players}/${room.capacity} · ${room.active ? "IN PROGRESS" : "WAITING"}`;
+    const modeLabel = room.gameMode === "top-score" ? "TOP SCORE" : "ENDLESS";
+    const mapLabel = room.map === "classic"
+      ? "CLASSIC ARENA"
+      : room.map === "crossroads" ? "CROSSROADS" : "OPEN VOID";
+    meta.textContent = `${modeLabel} · ${mapLabel} · ${room.players}/${room.capacity} · ${room.active ? "IN PROGRESS" : "WAITING"}`;
     details.append(title, meta);
     const button = document.createElement("button");
     button.type = "button";
@@ -1263,6 +1267,9 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   playerScores.clear();
   renderLeaderboard();
   hideWinnerCelebration();
+  serverRoundPhase = "countdown";
+  serverRoundTimer = 3;
+  renderRoundCountdown();
   practiceControls.classList.add("hidden");
   lobby.classList.add("hidden");
   clearChat();
@@ -1324,6 +1331,8 @@ function startOffline(): void {
   leaderboardModalOpen = false;
   playerScores.clear();
   hideWinnerCelebration();
+  offlineRoundTimer = 3;
+  renderOfflineRoundCountdown();
   practiceControls.classList.remove("hidden");
   lobby.classList.add("hidden");
 }
@@ -1361,6 +1370,7 @@ function leaveRoom(): void {
   leaderboardModalOpen = false;
   playerScores.clear();
   hideWinnerCelebration();
+  hideRoundCountdown();
   settingsModal.classList.add("hidden");
   settingsModalOpen = false;
   showLobby();
@@ -1472,11 +1482,16 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   if (
     !Array.isArray(data.settings) || !Array.isArray(data.ships) ||
     !Array.isArray(data.bullets) || !Array.isArray(data.powerups) ||
-    !Array.isArray(data.wormholes) || !Array.isArray(data.events)
+    !Array.isArray(data.wormholes) || !Array.isArray(data.events) ||
+    !Array.isArray(data.round)
   ) return;
 
   const settings = data.settings;
   if (!isArenaMapId(settings[0]) || !Number.isInteger(settings[1])) return;
+  if ((data.round[0] !== 0 && data.round[0] !== 1 && data.round[0] !== 2) || !isFiniteNumber(data.round[1])) return;
+  serverRoundPhase = data.round[0] === 0 ? "playing" : data.round[0] === 1 ? "countdown" : "intermission";
+  serverRoundTimer = Math.max(0, data.round[1]);
+  renderRoundCountdown();
   if (serverFallbackActive) {
     clearBullets();
     clearLaserBeams();
@@ -1777,6 +1792,34 @@ function hideWinnerCelebration(): void {
   window.clearTimeout(winnerCelebrationTimer);
   winnerCelebration.classList.add("hidden");
   confetti.replaceChildren();
+}
+
+function renderRoundCountdown(): void {
+  if (!joined || serverRoundPhase === "playing") {
+    hideRoundCountdown();
+    return;
+  }
+  const intermission = serverRoundPhase === "intermission";
+  roundCountdownLabel.textContent = intermission ? "NEXT MATCH IN" : "MATCH STARTS IN";
+  roundCountdownValue.textContent = String(Math.max(1, Math.ceil(serverRoundTimer)));
+  countdownLeaderboardButton.classList.remove("hidden");
+  roundCountdown.classList.remove("hidden");
+}
+
+function renderOfflineRoundCountdown(): void {
+  if (!offline || offlineRoundTimer <= 0) {
+    hideRoundCountdown();
+    return;
+  }
+  roundCountdownLabel.textContent = "MATCH STARTS IN";
+  roundCountdownValue.textContent = String(Math.max(1, Math.ceil(offlineRoundTimer)));
+  countdownLeaderboardButton.classList.add("hidden");
+  roundCountdown.classList.remove("hidden");
+}
+
+function hideRoundCountdown(): void {
+  roundCountdown.classList.add("hidden");
+  countdownLeaderboardButton.classList.add("hidden");
 }
 
 function appendChatMessage(senderId: string, senderName: string, text: string): void {
@@ -2447,7 +2490,7 @@ function fireLaserVolley(
   isLocal: boolean,
 ): boolean {
   const angleOffsets = tripleShot ? [-0.18, 0, 0.18] : [0];
-  const volleyCost = config.bulletEnergyCost * laserEnergyMultiplier * angleOffsets.length;
+  const volleyCost = config.bulletEnergyCost * angleOffsets.length;
   if (shipState.energy < volleyCost) return false;
   shipState.energy -= volleyCost;
   for (const angleOffset of angleOffsets) {
@@ -4054,6 +4097,11 @@ function simulateFixedStep(): void {
     simulateHostedFixedStep();
     return;
   }
+  if (offline && offlineRoundTimer > 0) {
+    offlineRoundTimer = Math.max(0, offlineRoundTimer - fixedStep);
+    renderOfflineRoundCountdown();
+    return;
+  }
   if (respawnTimer > 0) {
     respawnTimer = Math.max(0, respawnTimer - fixedStep);
     if (respawnTimer === 0) respawnLocalShip();
@@ -4187,6 +4235,8 @@ function simulateHostedFixedStep(): void {
     }
     return;
   }
+
+  if (serverRoundPhase !== "playing") return;
 
   if (respawnTimer <= 0 && !wormholeTransit) {
     // Predict only the local ship for responsive controls. Every server snapshot

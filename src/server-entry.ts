@@ -110,6 +110,7 @@ function createRoom(fromId: string, data: Record<string, unknown>): void {
   const world = new ServerWorld();
   world.configure(settings);
   world.addPlayer(fromId);
+  world.startMatchCountdown();
   const room: MatchRoom = {
     code,
     streamId: generateStreamId(),
@@ -213,6 +214,7 @@ function publishDirectory(): void {
       room.world.settings.map,
       Number(room.active),
       Number(room.allowJoinInProgress),
+      room.world.settings.gameMode,
     ]);
   server.setState("server:rooms", directory);
 }

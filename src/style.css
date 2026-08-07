@@ -237,7 +237,7 @@ dd {
 .powerup-tray {
   bottom: 54px;
   left: 28px;
-  width: min(430px, calc(100vw - 56px));
+  width: min(300px, calc(50vw - 28px));
   color: #7890a5;
   font-size: 8px;
   letter-spacing: 0.11em;
@@ -250,14 +250,13 @@ dd {
 }
 
 .powerup-cards {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 7px;
 }
 
 .powerup-card {
   display: flex;
-  flex: 1 1 190px;
+  width: 100%;
   align-items: center;
   min-width: 0;
   height: 58px;
@@ -737,6 +736,52 @@ kbd {
 
 @keyframes confetti-fall {
   to { transform: translate3d(var(--drift), 110vh, 0) rotate(900deg); }
+}
+
+.round-countdown {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 7;
+  display: grid;
+  min-width: min(390px, calc(100vw - 40px));
+  place-items: center;
+  padding: 22px 28px;
+  border: 1px solid rgb(105 221 255 / 62%);
+  background: rgb(5 10 22 / 88%);
+  box-shadow: 0 0 42px rgb(105 221 255 / 20%), inset 0 0 24px rgb(255 85 199 / 8%);
+  color: #9db7ca;
+  letter-spacing: 0.16em;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(7px);
+}
+
+.round-countdown > span {
+  font-size: 12px;
+}
+
+.round-countdown > strong {
+  margin: 5px 0 9px;
+  color: #f4fcff;
+  font-size: clamp(54px, 10vw, 100px);
+  line-height: 1;
+  text-shadow: 0 0 20px #69ddff, 3px 3px 0 #7c2d72;
+}
+
+.round-countdown button {
+  padding: 10px 13px;
+  border: 1px solid #69ddff;
+  background: rgb(13 76 111 / 68%);
+  color: #dff8ff;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.round-countdown button:hover,
+.round-countdown button:focus-visible {
+  border-color: #dff8ff;
+  box-shadow: 0 0 18px rgb(105 221 255 / 28%);
+  outline: none;
 }
 
 .controls-modal {
@@ -1375,13 +1420,34 @@ kbd {
 
 @media (max-width: 720px) {
   .hud {
-    top: 60px;
+    top: 18px;
     right: 18px;
+    width: calc(50vw - 27px);
+    min-width: 0;
+  }
+
+  .hud dl {
+    display: none;
+  }
+
+  .energy-label,
+  .enemy-energy-label {
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .energy-label span,
+  .enemy-energy-label span {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .enemy-hud {
     top: 18px;
-    width: min(220px, calc(100vw - 36px));
+    left: 18px;
+    width: calc(50vw - 27px);
+    min-width: 0;
+    transform: none;
   }
 
   .diagnostics {
@@ -1414,9 +1480,21 @@ kbd {
   }
 
   .powerup-tray {
-    bottom: 64px;
-    left: 18px;
-    width: calc(100vw - 36px);
+    top: 65px;
+    right: 18px;
+    bottom: auto;
+    left: auto;
+    width: calc(50vw - 27px);
+    max-height: calc(100vh - 145px);
+    overflow-y: auto;
+  }
+
+  .powerup-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .powerup-card {
+    min-width: 0;
   }
 
   .help-button {

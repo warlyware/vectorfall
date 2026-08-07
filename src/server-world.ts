@@ -77,6 +77,7 @@ export interface ServerSnapshot {
   sv: 1;
   tick: number;
   settings: [ArenaMapId, number, number, number, number];
+  round: [number, number];
   ships: Array<[
     string, number, number, number, number, number, number, number,
     number, number, number, number, number, number, number, number,
@@ -95,7 +96,6 @@ const shieldCapacity = 100;
 const tripleDuration = 18;
 const missileDuration = 7;
 const laserDuration = 12;
-const laserEnergyMultiplier = 1.2;
 const powerupRadius = 18;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -169,7 +169,18 @@ export class ServerWorld {
   private events: unknown[] = [];
   private now = 0;
   private roundEnded = false;
-  private roundRestartTimer = 0;
+  private roundPhase: "countdown" | "playing" | "intermission" = "playing";
+  private roundTimer = 0;
+
+  startMatchCountdown(): void {
+    this.roundPhase = "countdown";
+    this.roundTimer = 3;
+    this.bullets.length = 0;
+    for (const player of this.players.values()) {
+      player.input = emptyInput();
+      player.firing = false;
+    }
+  }
 
   configure(value: unknown): boolean {
     if (this.configured || !isRecord(value) || !isArenaMapId(value.map)) return false;
@@ -269,6 +280,10 @@ export class ServerWorld {
         Number(this.settings.gameMode === "top-score"),
         this.settings.scoreToWin,
       ],
+      round: [
+        this.roundPhase === "playing" ? 0 : this.roundPhase === "countdown" ? 1 : 2,
+        round(this.roundTimer),
+      ],
       ships: [...this.players.values()].map((player) => [
         player.id,
         round(player.state.position.x), round(player.state.position.y),
@@ -300,9 +315,17 @@ export class ServerWorld {
 
   private stepFixed(): void {
     this.roundEnded = false;
-    if (this.roundRestartTimer > 0) {
-      this.roundRestartTimer = Math.max(0, this.roundRestartTimer - fixedStep);
-      if (this.roundRestartTimer === 0) this.resetRound();
+    if (this.roundPhase !== "playing") {
+      this.roundTimer = Math.max(0, this.roundTimer - fixedStep);
+      if (this.roundPhase === "intermission" && this.roundTimer <= 3) {
+        this.roundPhase = "countdown";
+        this.roundTimer = 3;
+        this.events.push(["countdown", 3]);
+      } else if (this.roundPhase === "countdown" && this.roundTimer === 0) {
+        this.resetRound();
+        this.roundPhase = "playing";
+        this.events.push(["round-start"]);
+      }
       return;
     }
     for (const player of this.players.values()) this.stepPlayer(player);
@@ -349,7 +372,7 @@ export class ServerWorld {
       ? "laser"
       : player.missileTimer > 0 ? "missile" : "standard";
     const offsets = player.tripleTimer > 0 ? [-0.18, 0, 0.18] : [0];
-    const cost = config.bulletEnergyCost * offsets.length * (weapon === "laser" ? laserEnergyMultiplier : 1);
+    const cost = config.bulletEnergyCost * offsets.length;
     if (player.state.energy < cost) return;
     if (weapon !== "laser" && this.bullets.length + offsets.length > maxBullets) return;
     if (weapon === "laser") {
@@ -466,13 +489,14 @@ export class ServerWorld {
       attacker.score >= this.settings.scoreToWin
     ) {
       this.events.push(["win", attacker.id]);
-      this.beginRoundRestart();
+      this.beginRoundIntermission();
     }
   }
 
-  private beginRoundRestart(): void {
+  private beginRoundIntermission(): void {
     this.roundEnded = true;
-    this.roundRestartTimer = 3.5;
+    this.roundPhase = "intermission";
+    this.roundTimer = 20;
     this.bullets.length = 0;
     for (const player of this.players.values()) {
       player.input = emptyInput();

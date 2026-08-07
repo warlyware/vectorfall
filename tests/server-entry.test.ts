@@ -49,10 +49,10 @@ describe("Portals server room directory", () => {
       public: true,
       joinInProgress: false,
     }, "one");
-    expect(state["server:rooms"]).toEqual([["alpha", 1, 8, "classic", 0, 0]]);
+    expect(state["server:rooms"]).toEqual([["alpha", 1, 8, "classic", 0, 0, "endless"]]);
 
     message?.({ k: "join-room", room: "alpha" }, "two");
-    expect(state["server:rooms"]).toEqual([["alpha", 2, 8, "classic", 1, 0]]);
+    expect(state["server:rooms"]).toEqual([["alpha", 2, 8, "classic", 1, 0, "endless"]]);
     message?.({ k: "join-room", room: "alpha" }, "three");
     expect(sent).toContainEqual({
       k: "room-error",
