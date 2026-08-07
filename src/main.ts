@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import "./style.css";
+import packageMetadata from "../package.json";
 import { ArcadeAudio } from "./audio";
 import {
   circleIntersectsRect,
@@ -27,7 +28,7 @@ const arcadeAudio = new ArcadeAudio();
 
 app.innerHTML = `
   <canvas id="game" aria-label="VECTORFALL multiplayer space combat"></canvas>
-  <section class="hud" aria-live="polite">
+  <section id="player-hud" class="hud" aria-live="polite">
     <div class="energy-label"><span>ENERGY</span><output id="energy-value">100</output></div>
     <div class="energy-track"><div id="energy-fill"></div></div>
     <dl>
@@ -93,6 +94,34 @@ app.innerHTML = `
           <div class="powerup-card-track"><div id="laser-powerup-fill"></div></div>
         </div>
       </article>
+      <article id="phase-powerup-card" class="powerup-card phase-card hidden">
+        <span class="powerup-card-icon">◌</span>
+        <div class="powerup-card-details">
+          <div><strong>PHASE SHIFT</strong><output id="phase-powerup-value">5.0s</output></div>
+          <div class="powerup-card-track"><div id="phase-powerup-fill"></div></div>
+        </div>
+      </article>
+      <article id="afterburner-powerup-card" class="powerup-card afterburner-card hidden">
+        <span class="powerup-card-icon">»</span>
+        <div class="powerup-card-details">
+          <div><strong>AFTERBURNER</strong><output id="afterburner-powerup-value">10.0s</output></div>
+          <div class="powerup-card-track"><div id="afterburner-powerup-fill"></div></div>
+        </div>
+      </article>
+      <article id="gravity-powerup-card" class="powerup-card gravity-card hidden">
+        <span class="powerup-card-icon">●</span>
+        <div class="powerup-card-details">
+          <div><strong>GRAVITY MINE</strong><output id="gravity-powerup-value">3.2s</output></div>
+          <div class="powerup-card-track"><div id="gravity-powerup-fill"></div></div>
+        </div>
+      </article>
+      <article id="reflector-powerup-card" class="powerup-card reflector-card hidden">
+        <span class="powerup-card-icon">↶</span>
+        <div class="powerup-card-details">
+          <div><strong>REFLECTOR</strong><output id="reflector-powerup-value">8.0s</output></div>
+          <div class="powerup-card-track"><div id="reflector-powerup-fill"></div></div>
+        </div>
+      </article>
     </div>
   </section>
   <aside id="diagnostics" class="diagnostics hidden">
@@ -101,7 +130,7 @@ app.innerHTML = `
     <p>Settings affect only your local ship.</p>
   </aside>
   <button id="help-button" class="help-button" type="button" aria-label="Open controls" aria-haspopup="dialog" aria-controls="controls-modal" aria-expanded="false">?</button>
-  <button id="settings-button" class="settings-button hidden" type="button" aria-label="Open settings" aria-haspopup="dialog" aria-controls="settings-modal" aria-expanded="false">⚙</button>
+  <button id="settings-button" class="settings-button" type="button" aria-label="Open settings" aria-haspopup="dialog" aria-controls="settings-modal" aria-expanded="false">⚙</button>
   <section id="controls-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
     <div class="controls-card">
       <div class="controls-heading">
@@ -138,7 +167,11 @@ app.innerHTML = `
         <div><span class="eyebrow">SYSTEM MENU</span><h2 id="settings-title">SETTINGS</h2></div>
         <button id="close-settings" class="close-controls" type="button" aria-label="Close settings">×</button>
       </div>
-      <dl class="settings-match-info" aria-label="Active match settings">
+      <label class="settings-toggle" for="settings-player-names">
+        <span><strong>PLAYER NAMES</strong><small>Display pilot names above ships.</small></span>
+        <input id="settings-player-names" type="checkbox" checked />
+      </label>
+      <dl id="settings-match-info" class="settings-match-info" aria-label="Active match settings">
         <div><dt>GAME MODE</dt><dd id="settings-game-mode">ENDLESS</dd></div>
         <div><dt>MAP</dt><dd id="settings-map">CLASSIC ARENA</dd></div>
       </dl>
@@ -162,6 +195,19 @@ app.innerHTML = `
       <ol id="leaderboard-all" class="leaderboard-all"></ol>
     </div>
   </section>
+  <section id="match-timer" class="match-timer hidden" aria-live="polite">
+    <span id="match-timer-label">TIME REMAINING</span>
+    <strong id="match-timer-value">03:00</strong>
+  </section>
+  <section id="spectator-hud" class="spectator-hud hidden" aria-live="polite">
+    <span>SPECTATOR MODE</span>
+    <strong id="spectator-name">WATCHING</strong>
+    <div>
+      <button id="spectator-previous" type="button" aria-label="Watch previous player">‹</button>
+      <small>A / D OR ← / →</small>
+      <button id="spectator-next" type="button" aria-label="Watch next player">›</button>
+    </div>
+  </section>
   <div id="winner-celebration" class="winner-celebration hidden" aria-live="assertive">
     <strong id="winner-message"></strong>
     <div id="confetti" class="confetti" aria-hidden="true"></div>
@@ -177,16 +223,10 @@ app.innerHTML = `
     <div class="arcade-brand">
       <span class="arcade-kicker">WARLYWARE PRESENTS</span>
       <h1 id="lobby-title"><span>VECTOR</span><span>FALL</span></h1>
-      <div class="arcade-subtitle"><i></i><span>VECTOR COMBAT</span><i></i></div>
+      <span class="arcade-version">VERSION ${packageMetadata.version}</span>
     </div>
-    <div id="lobby-card" class="lobby-card" role="group" aria-labelledby="mode-title">
-      <div class="lobby-card-heading">
-        <span class="eyebrow">PILOT ACCESS</span>
-        <span class="cabinet-lights" aria-hidden="true"><i></i><i></i><i></i></span>
-      </div>
+    <div id="lobby-card" class="lobby-card" role="group" aria-label="Flight modes">
       <div id="lobby-main-menu" class="lobby-menu-view">
-        <h2 id="mode-title">SELECT FLIGHT MODE</h2>
-        <p>Establish a new combat sector, join an active frequency, or enter solo simulation.</p>
         <button id="open-create-menu" type="button"><span>CREATE GAME</span><small>HOST</small></button>
         <button id="open-join-menu" class="secondary" type="button"><span>JOIN WITH CODE</span><small>CODE</small></button>
         <button id="open-rooms-menu" class="secondary" type="button"><span>BROWSE GAMES</span><small>LIST</small></button>
@@ -206,10 +246,15 @@ app.innerHTML = `
         <select id="create-game-mode">
           <option value="endless">ENDLESS</option>
           <option value="top-score" selected>TOP SCORE</option>
+          <option value="timed">TIMED MATCH</option>
         </select>
         <div id="score-to-win-field" class="score-to-win-field">
           <label for="create-score-to-win">POINTS NEEDED TO WIN</label>
           <input id="create-score-to-win" type="number" min="1" max="100" step="1" value="5" />
+        </div>
+        <div id="match-duration-field" class="score-to-win-field hidden">
+          <label for="create-match-minutes">MATCH LENGTH (MINUTES)</label>
+          <input id="create-match-minutes" type="number" min="1" max="60" step="1" value="3" />
         </div>
         <span class="lobby-field-label">ACTIVE POWERUPS</span>
         <div class="powerup-options">
@@ -227,7 +272,31 @@ app.innerHTML = `
           </label>
           <label>
             <input id="create-laser" type="checkbox" checked />
-            <span><strong>LASERS</strong><small>Upgrades the cannon with fast, high-damage energy bolts.</small></span>
+            <span><strong>LASERS</strong><small>Upgrades the cannon with an instantaneous high-damage energy beam.</small></span>
+          </label>
+          <label>
+            <input id="create-phase" type="checkbox" checked />
+            <span><strong>PHASE SHIFT</strong><small>Pass through walls and ignore weapon damage for 5 seconds.</small></span>
+          </label>
+          <label>
+            <input id="create-afterburner" type="checkbox" checked />
+            <span><strong>AFTERBURNER</strong><small>Boosts acceleration, top speed, and energy recovery for 10 seconds.</small></span>
+          </label>
+          <label>
+            <input id="create-gravity" type="checkbox" checked />
+            <span><strong>GRAVITY MINE</strong><small>Deploys a trap that pulls enemies inward before detonating.</small></span>
+          </label>
+          <label>
+            <input id="create-reflector" type="checkbox" checked />
+            <span><strong>REFLECTOR SHIELD</strong><small>Redirects incoming projectiles back into the fight for 8 seconds.</small></span>
+          </label>
+          <label>
+            <input id="create-fuel" type="checkbox" checked />
+            <span><strong>FUEL TANK</strong><small>Immediately refills the ship's energy to 100.</small></span>
+          </label>
+          <label>
+            <input id="create-overcharge" type="checkbox" checked />
+            <span><strong>OVERCHARGE</strong><small>Immediately supercharges the ship's energy to 200.</small></span>
           </label>
         </div>
         <span class="lobby-field-label">GAMEPLAY OPTIONS</span>
@@ -347,17 +416,36 @@ interface ShipVisual {
   group: THREE.Group;
   exhaust: THREE.Group;
   shield: THREE.Group;
+  phaseField: THREE.Group;
+  reflector: THREE.Group;
+  nameplate: THREE.Sprite;
 }
 
-type PowerupType = "shield" | "triple" | "missile" | "laser";
+type PowerupType =
+  | "shield"
+  | "triple"
+  | "missile"
+  | "laser"
+  | "phase"
+  | "afterburner"
+  | "gravity"
+  | "reflector"
+  | "fuel"
+  | "overcharge";
 type WeaponType = "standard" | "missile" | "laser";
+
+const powerupTypes: PowerupType[] = [
+  "shield", "triple", "missile", "laser", "phase", "afterburner", "gravity", "reflector",
+  "fuel", "overcharge",
+];
 
 interface GameSettings {
   map: ArenaMapId;
   powerups: PowerupType[];
   wormholes: boolean;
-  gameMode: "endless" | "top-score";
+  gameMode: "endless" | "top-score" | "timed";
   scoreToWin: number;
+  matchDurationSeconds: number;
 }
 
 interface Powerup {
@@ -366,6 +454,14 @@ interface Powerup {
   position: Vec2;
   visual: THREE.Group;
   phase: number;
+}
+
+interface GravityMine {
+  id: string;
+  owner: string;
+  position: Vec2;
+  timer: number;
+  visual: THREE.Group;
 }
 
 interface WormholePair {
@@ -418,6 +514,9 @@ interface RemotePilot {
   tripleShotTimer: number;
   homingMissileTimer: number;
   laserTimer: number;
+  phaseTimer: number;
+  afterburnerTimer: number;
+  reflectorTimer: number;
   thrusting: boolean;
   boosting: boolean;
   respawning: boolean;
@@ -427,6 +526,7 @@ interface RemotePilot {
   wormholeCooldown: number;
   transiting: boolean;
   wormholeTransit: WormholeTransit | null;
+  spectator: boolean;
 }
 
 interface RenderedBullet {
@@ -465,9 +565,10 @@ interface ExplosionEffect {
   duration: number;
 }
 
+let showPlayerNames = loadPlayerNamesPreference();
 const localVisual = createShipVisual(0xe9f2ff, 0x75d7ff, 0x4bc8ff);
 localVisual.group.visible = false;
-scene.add(localVisual.group);
+scene.add(localVisual.group, localVisual.nameplate);
 
 const diagnosticsGroup = new THREE.Group();
 const velocityLine = makeLine(0x4bc8ff);
@@ -489,6 +590,7 @@ const remotePilots = new Map<string, RemotePilot>();
 const bullets: RenderedBullet[] = [];
 const laserBeams: LaserBeamEffect[] = [];
 const powerups = new Map<string, Powerup>();
+const gravityMines = new Map<string, GravityMine>();
 const wormholePairs = new Map<string, WormholePair>();
 const bulletGeometry = new THREE.CircleGeometry(2.7, 8);
 const localBulletMaterial = new THREE.MeshBasicMaterial({ color: 0x8ee8ff });
@@ -512,6 +614,14 @@ const shieldCapacity = 100;
 const tripleShotDuration = 18;
 const homingMissileDuration = 7;
 const laserDuration = 12;
+const phaseDuration = 5;
+const afterburnerDuration = 10;
+const reflectorDuration = 8;
+const gravityMineFuse = 3.2;
+const gravityMinePullRadius = 190;
+const gravityMineBlastRadius = 115;
+const gravityMinePullAcceleration = 285;
+const gravityMineDamage = 55;
 const maxActivePowerups = 4;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -539,6 +649,9 @@ let shipShield = 0;
 let tripleShotTimer = 0;
 let homingMissileTimer = 0;
 let laserTimer = 0;
+let phaseTimer = 0;
+let afterburnerTimer = 0;
+let reflectorTimer = 0;
 let paused = false;
 let showDiagnostics = false;
 let collidedThisFrame = false;
@@ -568,6 +681,7 @@ const networkInterval = 0.12;
 let cpuCounter = 0;
 let cameraShake = 0;
 let powerupCounter = 0;
+let gravityMineCounter = 0;
 let powerupSpawnTimer = randomPowerupDelay();
 let wormholeCounter = 0;
 let wormholeSpawnTimer = randomWormholeDelay();
@@ -575,10 +689,14 @@ let wormholeCooldown = 0;
 let wormholeTransit: WormholeTransit | null = null;
 let activeGameSettings: GameSettings = {
   map: "classic",
-  powerups: ["shield", "triple", "missile", "laser"],
+  powerups: [
+    "shield", "triple", "missile", "laser",
+    "phase", "afterburner", "gravity", "reflector", "fuel", "overcharge",
+  ],
   wormholes: true,
   gameMode: "endless",
   scoreToWin: 5,
+  matchDurationSeconds: 180,
 };
 let isGameCreator = false;
 let pendingRoomRequest = false;
@@ -589,9 +707,11 @@ let unknownEnemyCounter = 0;
 const playerScores = new Map<string, number>();
 let leaderboardModalOpen = false;
 let winnerCelebrationTimer: number | undefined;
-let serverRoundPhase: "countdown" | "playing" | "intermission" = "playing";
+let serverRoundPhase: "countdown" | "playing" | "sudden-death" | "intermission" = "playing";
 let serverRoundTimer = 0;
 let offlineRoundTimer = 0;
+let localSpectator = false;
+let spectatedPlayerId = "";
 
 interface PublicRoomListing {
   code: string;
@@ -600,7 +720,7 @@ interface PublicRoomListing {
   map: ArenaMapId;
   active: boolean;
   allowJoinInProgress: boolean;
-  gameMode: "endless" | "top-score";
+  gameMode: "endless" | "top-score" | "timed";
 }
 
 let publicRoomListings: PublicRoomListing[] = [];
@@ -614,6 +734,7 @@ const input: FlightInput = {
 };
 
 const energyFill = getElement<HTMLElement>("energy-fill");
+const playerHud = getElement<HTMLElement>("player-hud");
 const energyValue = getElement<HTMLElement>("energy-value");
 const powerupTray = getElement<HTMLElement>("powerup-tray");
 const shieldPowerupCard = getElement<HTMLElement>("shield-powerup-card");
@@ -628,6 +749,18 @@ const missilePowerupFill = getElement<HTMLElement>("missile-powerup-fill");
 const laserPowerupCard = getElement<HTMLElement>("laser-powerup-card");
 const laserPowerupValue = getElement<HTMLOutputElement>("laser-powerup-value");
 const laserPowerupFill = getElement<HTMLElement>("laser-powerup-fill");
+const phasePowerupCard = getElement<HTMLElement>("phase-powerup-card");
+const phasePowerupValue = getElement<HTMLOutputElement>("phase-powerup-value");
+const phasePowerupFill = getElement<HTMLElement>("phase-powerup-fill");
+const afterburnerPowerupCard = getElement<HTMLElement>("afterburner-powerup-card");
+const afterburnerPowerupValue = getElement<HTMLOutputElement>("afterburner-powerup-value");
+const afterburnerPowerupFill = getElement<HTMLElement>("afterburner-powerup-fill");
+const gravityPowerupCard = getElement<HTMLElement>("gravity-powerup-card");
+const gravityPowerupValue = getElement<HTMLOutputElement>("gravity-powerup-value");
+const gravityPowerupFill = getElement<HTMLElement>("gravity-powerup-fill");
+const reflectorPowerupCard = getElement<HTMLElement>("reflector-powerup-card");
+const reflectorPowerupValue = getElement<HTMLOutputElement>("reflector-powerup-value");
+const reflectorPowerupFill = getElement<HTMLElement>("reflector-powerup-fill");
 const enemyHud = getElement<HTMLElement>("enemy-hud");
 const enemyName = getElement<HTMLElement>("enemy-name");
 const enemyEnergyFill = getElement<HTMLElement>("enemy-energy-fill");
@@ -658,10 +791,18 @@ const createMapSelect = getElement<HTMLSelectElement>("create-map");
 const createGameModeSelect = getElement<HTMLSelectElement>("create-game-mode");
 const scoreToWinField = getElement<HTMLElement>("score-to-win-field");
 const createScoreToWinInput = getElement<HTMLInputElement>("create-score-to-win");
+const matchDurationField = getElement<HTMLElement>("match-duration-field");
+const createMatchMinutesInput = getElement<HTMLInputElement>("create-match-minutes");
 const createShieldInput = getElement<HTMLInputElement>("create-shield");
 const createTripleInput = getElement<HTMLInputElement>("create-triple");
 const createMissileInput = getElement<HTMLInputElement>("create-missile");
 const createLaserInput = getElement<HTMLInputElement>("create-laser");
+const createPhaseInput = getElement<HTMLInputElement>("create-phase");
+const createAfterburnerInput = getElement<HTMLInputElement>("create-afterburner");
+const createGravityInput = getElement<HTMLInputElement>("create-gravity");
+const createReflectorInput = getElement<HTMLInputElement>("create-reflector");
+const createFuelInput = getElement<HTMLInputElement>("create-fuel");
+const createOverchargeInput = getElement<HTMLInputElement>("create-overcharge");
 const createWormholesInput = getElement<HTMLInputElement>("create-wormholes");
 const createPublicInput = getElement<HTMLInputElement>("create-public");
 const createJoinProgressInput = getElement<HTMLInputElement>("create-join-progress");
@@ -687,6 +828,8 @@ const settingsButton = getElement<HTMLButtonElement>("settings-button");
 const settingsModal = getElement<HTMLElement>("settings-modal");
 const closeSettingsButton = getElement<HTMLButtonElement>("close-settings");
 const settingsLeaveMatchButton = getElement<HTMLButtonElement>("settings-leave-match");
+const settingsMatchInfo = getElement<HTMLElement>("settings-match-info");
+const settingsPlayerNamesInput = getElement<HTMLInputElement>("settings-player-names");
 const settingsGameMode = getElement<HTMLElement>("settings-game-mode");
 const settingsMap = getElement<HTMLElement>("settings-map");
 const leaderboard = getElement<HTMLElement>("leaderboard");
@@ -705,6 +848,13 @@ const roundCountdown = getElement<HTMLElement>("round-countdown");
 const roundCountdownLabel = getElement<HTMLElement>("round-countdown-label");
 const roundCountdownValue = getElement<HTMLElement>("round-countdown-value");
 const countdownLeaderboardButton = getElement<HTMLButtonElement>("countdown-leaderboard");
+const matchTimer = getElement<HTMLElement>("match-timer");
+const matchTimerLabel = getElement<HTMLElement>("match-timer-label");
+const matchTimerValue = getElement<HTMLElement>("match-timer-value");
+const spectatorHud = getElement<HTMLElement>("spectator-hud");
+const spectatorName = getElement<HTMLElement>("spectator-name");
+const spectatorPreviousButton = getElement<HTMLButtonElement>("spectator-previous");
+const spectatorNextButton = getElement<HTMLButtonElement>("spectator-next");
 const portalsNet = window.Portals?.net;
 const portalsVoice = window.Portals?.voice;
 const voiceChatEnabled = false;
@@ -750,6 +900,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-lobby-back]").forEach((butto
 createRoomButton.addEventListener("click", () => void createGame());
 createGameModeSelect.addEventListener("change", () => {
   scoreToWinField.classList.toggle("hidden", createGameModeSelect.value !== "top-score");
+  matchDurationField.classList.toggle("hidden", createGameModeSelect.value !== "timed");
 });
 createRoomCodeInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -774,12 +925,20 @@ settingsLeaveMatchButton.addEventListener("click", () => {
   setSettingsModalVisible(false);
   leaveRoom();
 });
+settingsPlayerNamesInput.checked = showPlayerNames;
+settingsPlayerNamesInput.addEventListener("change", () => {
+  showPlayerNames = settingsPlayerNamesInput.checked;
+  savePlayerNamesPreference(showPlayerNames);
+  updateAllNameplateVisibility();
+});
 expandLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(true));
 countdownLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(true));
 closeLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(false));
 leaderboardModal.addEventListener("pointerdown", (event) => {
   if (event.target === leaderboardModal) setLeaderboardModalVisible(false);
 });
+spectatorPreviousButton.addEventListener("click", () => cycleSpectatedPlayer(-1));
+spectatorNextButton.addEventListener("click", () => cycleSpectatedPlayer(1));
 addCpuButton.addEventListener("click", () => spawnCpu());
 removeCpuButton.addEventListener("click", () => removeCpu());
 chatForm.addEventListener("submit", (event) => {
@@ -821,6 +980,8 @@ let gamepadTurnRight = false;
 let gamepadBoost = false;
 let gamepadFire = false;
 let gamepadPauseWasDown = false;
+let gamepadSpectatorPreviousWasDown = false;
+let gamepadSpectatorNextWasDown = false;
 let controlsModalOpen = false;
 let settingsModalOpen = false;
 window.addEventListener("keydown", (event) => {
@@ -842,6 +1003,11 @@ window.addEventListener("keydown", (event) => {
   }
   if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen) return;
   if (isTextEntryTarget(event.target)) return;
+  if (localSpectator && ["KeyA", "ArrowLeft", "KeyD", "ArrowRight"].includes(event.code)) {
+    event.preventDefault();
+    if (!event.repeat) cycleSpectatedPlayer(event.code === "KeyA" || event.code === "ArrowLeft" ? -1 : 1);
+    return;
+  }
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
   }
@@ -1014,16 +1180,27 @@ async function createGame(): Promise<void> {
   if (createTripleInput.checked) powerups.push("triple");
   if (createMissileInput.checked) powerups.push("missile");
   if (createLaserInput.checked) powerups.push("laser");
+  if (createPhaseInput.checked) powerups.push("phase");
+  if (createAfterburnerInput.checked) powerups.push("afterburner");
+  if (createGravityInput.checked) powerups.push("gravity");
+  if (createReflectorInput.checked) powerups.push("reflector");
+  if (createFuelInput.checked) powerups.push("fuel");
+  if (createOverchargeInput.checked) powerups.push("overcharge");
   const map = isArenaMapId(createMapSelect.value) ? createMapSelect.value : "classic";
-  const gameMode = createGameModeSelect.value === "top-score" ? "top-score" : "endless";
+  const gameMode = createGameModeSelect.value === "top-score"
+    ? "top-score"
+    : createGameModeSelect.value === "timed" ? "timed" : "endless";
   const scoreToWin = clampNumber(Math.round(Number(createScoreToWinInput.value) || 5), 1, 100);
   createScoreToWinInput.value = String(scoreToWin);
+  const matchMinutes = clampNumber(Math.round(Number(createMatchMinutesInput.value) || 3), 1, 60);
+  createMatchMinutesInput.value = String(matchMinutes);
   await joinRoom(createRoomCodeInput.value, {
     map,
     powerups,
     wormholes: createWormholesInput.checked,
     gameMode,
     scoreToWin,
+    matchDurationSeconds: matchMinutes * 60,
   }, {
     isPublic: createPublicInput.checked,
     allowJoinInProgress: createJoinProgressInput.checked,
@@ -1056,12 +1233,12 @@ function setupMultiplayerEvents(): void {
     resetUnknownEnemyNumbers();
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
     showLobby();
-    settingsButton.classList.add("hidden");
     leaderboard.classList.add("hidden");
     leaderboardModal.classList.add("hidden");
     leaderboardModalOpen = false;
     hideWinnerCelebration();
     hideRoundCountdown();
+    resetSpectatorView();
     settingsModal.classList.add("hidden");
     settingsModalOpen = false;
     clearRemotePilots();
@@ -1174,7 +1351,7 @@ function receiveRoomDirectory(value: unknown): void {
       !Number.isInteger(row[1]) || !Number.isInteger(row[2]) ||
       !isArenaMapId(row[3]) || (row[4] !== 0 && row[4] !== 1) ||
       (row[5] !== 0 && row[5] !== 1) ||
-      (row[6] !== "endless" && row[6] !== "top-score")
+      (row[6] !== "endless" && row[6] !== "top-score" && row[6] !== "timed")
     ) return [];
     return [{
       code: row[0],
@@ -1229,7 +1406,9 @@ function renderRoomDirectory(): void {
     title.textContent = room.code.toUpperCase();
     const meta = document.createElement("span");
     const joinable = room.players < room.capacity && (!room.active || room.allowJoinInProgress);
-    const modeLabel = room.gameMode === "top-score" ? "TOP SCORE" : "ENDLESS";
+    const modeLabel = room.gameMode === "top-score"
+      ? "TOP SCORE"
+      : room.gameMode === "timed" ? "TIMED MATCH" : "ENDLESS";
     const mapLabel = room.map === "classic"
       ? "CLASSIC ARENA"
       : room.map === "crossroads" ? "CROSSROADS" : "OPEN VOID";
@@ -1282,6 +1461,7 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   hideWinnerCelebration();
   serverRoundPhase = "countdown";
   serverRoundTimer = 3;
+  resetSpectatorView();
   renderRoundCountdown();
   practiceControls.classList.add("hidden");
   lobby.classList.add("hidden");
@@ -1297,10 +1477,15 @@ function readClientGameSettings(value: unknown): GameSettings | null {
     map: value.map,
     powerups: value.powerups.filter(isPowerupType),
     wormholes: value.wormholes !== false,
-    gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+    gameMode: value.gameMode === "top-score"
+      ? "top-score"
+      : value.gameMode === "timed" ? "timed" : "endless",
     scoreToWin: Number.isInteger(value.scoreToWin)
       ? clampNumber(value.scoreToWin as number, 1, 100)
       : 5,
+    matchDurationSeconds: Number.isFinite(value.matchDurationSeconds)
+      ? clampNumber(Math.round(value.matchDurationSeconds as number), 30, 3600)
+      : 180,
   };
 }
 
@@ -1314,15 +1499,18 @@ function startOffline(): void {
   setChatVisible(false);
   joined = false;
   offline = true;
+  resetMatchTimerView();
   resetServerAuthorityState();
   isGameCreator = false;
   applyGameSettings({
     map: "classic",
-    powerups: ["shield", "triple", "missile", "laser"],
+    powerups: [...powerupTypes],
     wormholes: true,
     gameMode: "endless",
     scoreToWin: 5,
+    matchDurationSeconds: 180,
   }, false);
+  resetSpectatorView();
   localId = "local";
   activeRoomCode = "";
   activeRoomStream = "";
@@ -1338,7 +1526,7 @@ function startOffline(): void {
   roomName.textContent = "OFFLINE";
   sessionPanel.classList.add("practice-session");
   sessionPanel.classList.remove("hidden");
-  settingsButton.classList.add("hidden");
+  settingsButton.classList.remove("hidden");
   leaderboard.classList.add("hidden");
   leaderboardModal.classList.add("hidden");
   leaderboardModalOpen = false;
@@ -1372,18 +1560,19 @@ function leaveRoom(): void {
   clearLaserBeams();
   clearExplosions();
   clearPowerups();
+  clearGravityMines();
   clearWormholes();
   clearWormholeJumpEffects();
   practiceControls.classList.add("hidden");
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
-  settingsButton.classList.add("hidden");
   leaderboard.classList.add("hidden");
   leaderboardModal.classList.add("hidden");
   leaderboardModalOpen = false;
   playerScores.clear();
   hideWinnerCelebration();
   hideRoundCountdown();
+  resetSpectatorView();
   settingsModal.classList.add("hidden");
   settingsModalOpen = false;
   showLobby();
@@ -1392,7 +1581,22 @@ function leaveRoom(): void {
 function showLobby(): void {
   lobby.classList.remove("hidden");
   sessionPanel.classList.add("hidden");
+  settingsButton.classList.remove("hidden");
+  resetMatchTimerView();
   setLobbyMenu("main");
+}
+
+function resetMatchTimerView(): void {
+  matchTimer.classList.add("hidden");
+  enemyHud.classList.remove("timed-match");
+  powerupTray.classList.remove("timed-match");
+}
+
+function resetSpectatorView(): void {
+  localSpectator = false;
+  spectatedPlayerId = "";
+  spectatorHud.classList.add("hidden");
+  playerHud.classList.remove("hidden");
 }
 
 function normalizeRoomCode(value: string): string {
@@ -1483,7 +1687,13 @@ function handleNetworkMessage(data: unknown, fromId: string): void {
   if (data.kind === "powerup-spawn") receivePowerupSpawn(data);
   if (data.kind === "powerup-pickup") receivePowerupPickup(data);
   if (data.kind === "powerup-sync") receivePowerupSync(data);
-  if (data.kind === "powerup-sync-request" && isPowerupAuthority()) broadcastPowerupSync();
+  if (data.kind === "powerup-sync-request" && isPowerupAuthority()) {
+    broadcastPowerupSync();
+    broadcastGravityMineSync();
+  }
+  if (data.kind === "gravity-mine-deploy") receiveGravityMineDeploy(data);
+  if (data.kind === "gravity-mine-remove" && typeof data.id === "string") removeGravityMine(data.id);
+  if (data.kind === "gravity-mine-sync") receiveGravityMineSync(data);
   if (data.kind === "wormhole-spawn") receiveWormholeSpawn(data);
   if (data.kind === "wormhole-remove") receiveWormholeRemove(data);
   if (data.kind === "wormhole-sync") receiveWormholeSync(data);
@@ -1495,32 +1705,39 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   if (
     !Array.isArray(data.settings) || !Array.isArray(data.ships) ||
     !Array.isArray(data.bullets) || !Array.isArray(data.powerups) ||
-    !Array.isArray(data.wormholes) || !Array.isArray(data.events) ||
+    !Array.isArray(data.mines) || !Array.isArray(data.wormholes) || !Array.isArray(data.events) ||
     !Array.isArray(data.round)
   ) return;
 
   const settings = data.settings;
   if (!isArenaMapId(settings[0]) || !Number.isInteger(settings[1])) return;
-  if ((data.round[0] !== 0 && data.round[0] !== 1 && data.round[0] !== 2) || !isFiniteNumber(data.round[1])) return;
-  serverRoundPhase = data.round[0] === 0 ? "playing" : data.round[0] === 1 ? "countdown" : "intermission";
+  if (![0, 1, 2, 3].includes(data.round[0] as number) || !isFiniteNumber(data.round[1])) return;
+  serverRoundPhase = data.round[0] === 0
+    ? "playing"
+    : data.round[0] === 1 ? "countdown" : data.round[0] === 2 ? "intermission" : "sudden-death";
   serverRoundTimer = Math.max(0, data.round[1]);
   renderRoundCountdown();
   if (serverFallbackActive) {
     clearBullets();
     clearLaserBeams();
     clearPowerups();
+    clearGravityMines();
     clearWormholes();
   }
   const powerupMask = settings[1] as number;
-  const enabledPowerups: PowerupType[] = ["shield", "triple", "missile", "laser"]
+  const enabledPowerups: PowerupType[] = powerupTypes
     .filter((_type, index) => Boolean(powerupMask & (1 << index))) as PowerupType[];
   applyGameSettings({
     map: settings[0],
     powerups: enabledPowerups,
     wormholes: settings[2] === 1,
-    gameMode: settings[3] === 1 ? "top-score" : "endless",
+    gameMode: settings[3] === 1 ? "top-score" : settings[3] === 2 ? "timed" : "endless",
     scoreToWin: isFiniteNumber(settings[4]) ? clampNumber(settings[4], 1, 100) : 5,
+    matchDurationSeconds: isFiniteNumber(settings[5])
+      ? clampNumber(Math.round(settings[5]), 30, 3600)
+      : 180,
   }, false);
+  renderMatchTimer();
 
   const firstSnapshot = !hasReceivedServerSnapshot;
   serverAuthorityActive = true;
@@ -1532,10 +1749,14 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   const seenShips = new Set<string>();
   for (const row of data.ships) {
     if (!isServerShipRow(row)) continue;
-    const [id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser, respawn, transit, _lastSequence, inputMask, score] = row;
+    const [
+      id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser,
+      phase, afterburner, reflector, respawn, transit, _lastSequence, inputMask, score, spectatorFlag,
+    ] = row;
     seenShips.add(id);
     playerScores.set(id, score);
     if (id === localId) {
+      localSpectator = spectatorFlag === 1;
       const mustSnap = firstSnapshot || respawnTimer > 0 || wormholeTransit !== null;
       if (mustSnap) {
         ship.position.x = x;
@@ -1552,11 +1773,14 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
         ship.velocity.y += (vy - ship.velocity.y) * 0.45;
         ship.angle += normalizeAngle(angle - ship.angle) * 0.4;
       }
-      ship.energy = clampNumber(energy, 0, config.maxEnergy);
+      ship.energy = clampNumber(energy, 0, config.maxEnergy * 2);
       shipShield = clampNumber(shield, 0, shieldCapacity);
       tripleShotTimer = clampNumber(triple, 0, tripleShotDuration);
       homingMissileTimer = clampNumber(missile, 0, homingMissileDuration);
       laserTimer = clampNumber(activeLaser, 0, laserDuration);
+      phaseTimer = clampNumber(phase, 0, phaseDuration);
+      afterburnerTimer = clampNumber(afterburner, 0, afterburnerDuration);
+      reflectorTimer = clampNumber(reflector, 0, reflectorDuration);
       respawnTimer = Math.max(0, respawn);
       if (transit > 0 && !wormholeTransit) {
         wormholeTransit = { start: { ...ship.position }, destination: { ...ship.position }, remaining: transit };
@@ -1565,7 +1789,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       } else if (wormholeTransit) {
         wormholeTransit.remaining = transit;
       }
-      localVisual.group.visible = respawn <= 0 && transit <= 0;
+      localVisual.group.visible = !localSpectator && respawn <= 0 && transit <= 0;
       continue;
     }
     updateRemoteState(id, {
@@ -1573,10 +1797,14 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       tripleShotTimer: triple,
       homingMissileTimer: missile,
       laserTimer: activeLaser,
+      phaseTimer: phase,
+      afterburnerTimer: afterburner,
+      reflectorTimer: reflector,
       thrusting: Boolean(inputMask & 1),
       boosting: Boolean(inputMask & 1) && Boolean(inputMask & 16),
       respawning: respawn > 0,
       transiting: transit > 0,
+      spectator: spectatorFlag === 1,
     });
   }
   for (const id of [...remotePilots.keys()]) {
@@ -1588,6 +1816,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   currentRoomPlayerIds.clear();
   for (const id of seenShips) currentRoomPlayerIds.add(id);
   refreshCurrentRoster();
+  updateSpectatorView();
   renderLeaderboard();
 
   const seenBullets = new Set<number>();
@@ -1602,6 +1831,8 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       current.state.velocity.x = vx;
       current.state.velocity.y = vy;
       current.state.lifetime = lifetime;
+      current.state.owner = owner;
+      updateBulletOwnerVisual(current);
     } else {
       addBullet({ position: { x, y }, velocity: { x: vx, y: vy }, lifetime, owner }, owner === localId, weapon, id);
     }
@@ -1619,6 +1850,24 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   }
   for (const id of [...powerups.keys()]) {
     if (id.startsWith("server-powerup-") && !seenPowerups.has(id)) removePowerup(id);
+  }
+
+  const seenMines = new Set<string>();
+  for (const row of data.mines) {
+    if (!isServerMineRow(row)) continue;
+    const id = `server-mine-${row[0]}`;
+    seenMines.add(id);
+    const mine = gravityMines.get(id);
+    if (mine) {
+      mine.position.x = row[2];
+      mine.position.y = row[3];
+      mine.timer = row[4];
+    } else {
+      createGravityMine(id, row[1], { x: row[2], y: row[3] }, row[4]);
+    }
+  }
+  for (const id of [...gravityMines.keys()]) {
+    if (id.startsWith("server-mine-") && !seenMines.has(id)) removeGravityMine(id);
   }
 
   const seenWormholes = new Set<string>();
@@ -1654,6 +1903,13 @@ function processServerEvent(event: unknown): void {
   } else if (kind === "pickup" && typeof event[1] === "string" && isPowerupType(event[3])) {
     const pilot = event[1] === localId ? ship : remotePilots.get(event[1])?.state;
     arcadeAudio.powerup(event[3], pilot ? soundVolumeAt(pilot.position) : 0.45);
+  } else if (kind === "reflect" && typeof event[1] === "string") {
+    const pilot = event[1] === localId ? ship : remotePilots.get(event[1])?.state;
+    arcadeAudio.reflect(pilot ? soundVolumeAt(pilot.position) : 0.5);
+  } else if (kind === "mine-explode" && event.slice(2, 4).every(isFiniteNumber)) {
+    const position = { x: event[2] as number, y: event[3] as number };
+    spawnExplosion(position);
+    arcadeAudio.mineExplosion(soundVolumeAt(position));
   } else if (kind === "wormhole-enter" && typeof event[1] === "string" && Number.isInteger(event[2])) {
     const pair = wormholePairs.get(`server-wormhole-${event[2]}`);
     if (!pair) return;
@@ -1676,7 +1932,7 @@ function processServerEvent(event: unknown): void {
 }
 
 function isServerShipRow(value: unknown): value is [string, ...number[]] {
-  return Array.isArray(value) && value.length >= 16 && typeof value[0] === "string" && value.slice(1, 16).every(isFiniteNumber);
+  return Array.isArray(value) && value.length >= 20 && typeof value[0] === "string" && value.slice(1, 20).every(isFiniteNumber);
 }
 
 function isServerBulletRow(value: unknown): value is [number, string, WeaponType, number, number, number, number, number] {
@@ -1685,6 +1941,11 @@ function isServerBulletRow(value: unknown): value is [number, string, WeaponType
 
 function isServerPowerupRow(value: unknown): value is [number, PowerupType, number, number] {
   return Array.isArray(value) && value.length >= 4 && Number.isInteger(value[0]) && isPowerupType(value[1]) && value.slice(2, 4).every(isFiniteNumber);
+}
+
+function isServerMineRow(value: unknown): value is [number, string, number, number, number] {
+  return Array.isArray(value) && value.length >= 5 && Number.isInteger(value[0]) &&
+    typeof value[1] === "string" && value.slice(2, 5).every(isFiniteNumber);
 }
 
 function isServerWormholeRow(value: unknown): value is [number, number, number, number, number, number, number] {
@@ -1758,6 +2019,7 @@ function renderLeaderboardRows(
     name.textContent = `${index + 1}. ${leaderboardPlayerName(id)}`;
     value.textContent = String(score);
     row.classList.toggle("local-player", id === localId);
+    row.classList.toggle("spectated-player", localSpectator && id === spectatedPlayerId);
     row.append(name, value);
     target.append(row);
   });
@@ -1808,7 +2070,7 @@ function hideWinnerCelebration(): void {
 }
 
 function renderRoundCountdown(): void {
-  if (!joined || serverRoundPhase === "playing") {
+  if (!joined || serverRoundPhase === "playing" || serverRoundPhase === "sudden-death") {
     hideRoundCountdown();
     return;
   }
@@ -1820,6 +2082,64 @@ function renderRoundCountdown(): void {
   showLeaderboardCountdown(label, value);
   countdownLeaderboardButton.classList.remove("hidden");
   roundCountdown.classList.remove("hidden");
+}
+
+function renderMatchTimer(): void {
+  const visible = joined && activeGameSettings.gameMode === "timed" &&
+    (serverRoundPhase === "playing" || serverRoundPhase === "sudden-death");
+  matchTimer.classList.toggle("hidden", !visible);
+  enemyHud.classList.toggle("timed-match", visible);
+  powerupTray.classList.toggle("timed-match", visible);
+  if (!visible) return;
+  if (serverRoundPhase === "sudden-death") {
+    matchTimerLabel.textContent = "TIED FOR FIRST";
+    matchTimerValue.textContent = "SUDDEN DEATH";
+    return;
+  }
+  matchTimerLabel.textContent = "TIME REMAINING";
+  matchTimerValue.textContent = formatMatchTime(serverRoundTimer);
+}
+
+function formatMatchTime(seconds: number): string {
+  const total = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
+}
+
+function activeSpectatorTargets(): string[] {
+  return [...remotePilots.entries()]
+    .filter(([, pilot]) => !pilot.spectator && !pilot.respawning)
+    .map(([id]) => id)
+    .sort((first, second) => leaderboardPlayerName(first).localeCompare(leaderboardPlayerName(second)));
+}
+
+function updateSpectatorView(): void {
+  if (!localSpectator) {
+    spectatedPlayerId = "";
+    spectatorHud.classList.add("hidden");
+    playerHud.classList.remove("hidden");
+    return;
+  }
+  const targets = activeSpectatorTargets();
+  if (!targets.includes(spectatedPlayerId)) spectatedPlayerId = targets[0] ?? "";
+  spectatorName.textContent = spectatedPlayerId
+    ? `WATCHING ${leaderboardPlayerName(spectatedPlayerId)}`
+    : "WAITING FOR ACTIVE PILOT";
+  spectatorPreviousButton.disabled = targets.length < 2;
+  spectatorNextButton.disabled = targets.length < 2;
+  spectatorHud.classList.remove("hidden");
+  playerHud.classList.add("hidden");
+  powerupTray.classList.add("hidden");
+  enemyHud.classList.add("hidden");
+}
+
+function cycleSpectatedPlayer(direction: -1 | 1): void {
+  if (!localSpectator) return;
+  const targets = activeSpectatorTargets();
+  if (targets.length === 0) return;
+  const current = Math.max(0, targets.indexOf(spectatedPlayerId));
+  spectatedPlayerId = targets[(current + direction + targets.length) % targets.length];
+  updateSpectatorView();
+  renderLeaderboard();
 }
 
 function renderOfflineRoundCountdown(): void {
@@ -1894,7 +2214,7 @@ function updateRemoteState(fromId: string, data: Record<string, unknown>): void 
   pilot.state.velocity.x = clampNumber(data.vx as number, -1000, 1000);
   pilot.state.velocity.y = clampNumber(data.vy as number, -1000, 1000);
   pilot.state.angle = data.angle as number;
-  pilot.state.energy = clampNumber(data.energy as number, 0, config.maxEnergy);
+  pilot.state.energy = clampNumber(data.energy as number, 0, config.maxEnergy * 2);
   pilot.shield = isFiniteNumber(data.shield)
     ? clampNumber(data.shield, 0, shieldCapacity)
     : pilot.shield;
@@ -1907,10 +2227,20 @@ function updateRemoteState(fromId: string, data: Record<string, unknown>): void 
   pilot.laserTimer = isFiniteNumber(data.laserTimer)
     ? clampNumber(data.laserTimer, 0, laserDuration)
     : pilot.laserTimer;
+  pilot.phaseTimer = isFiniteNumber(data.phaseTimer)
+    ? clampNumber(data.phaseTimer, 0, phaseDuration)
+    : pilot.phaseTimer;
+  pilot.afterburnerTimer = isFiniteNumber(data.afterburnerTimer)
+    ? clampNumber(data.afterburnerTimer, 0, afterburnerDuration)
+    : pilot.afterburnerTimer;
+  pilot.reflectorTimer = isFiniteNumber(data.reflectorTimer)
+    ? clampNumber(data.reflectorTimer, 0, reflectorDuration)
+    : pilot.reflectorTimer;
   pilot.thrusting = data.thrusting === true;
   pilot.boosting = data.boosting === true;
   pilot.respawning = data.respawning === true;
   pilot.transiting = data.transiting === true;
+  pilot.spectator = data.spectator === true;
   if (wasSpawned && pilot.respawning) spawnExplosion(pilot.state.position);
   if (pilot.respawning) {
     pilot.visualReady = false;
@@ -1921,7 +2251,7 @@ function updateRemoteState(fromId: string, data: Record<string, unknown>): void 
   if (wasTransiting && !pilot.transiting) {
     arcadeAudio.wormholeExit(soundVolumeAt(pilot.state.position));
   }
-  pilot.visual.group.visible = pilot.visualReady && !pilot.respawning && !pilot.transiting;
+  pilot.visual.group.visible = pilot.visualReady && !pilot.respawning && !pilot.transiting && !pilot.spectator;
 }
 
 function receiveRemoteShot(fromId: string, data: Record<string, unknown>): void {
@@ -2024,6 +2354,45 @@ function broadcastPowerupSync(): void {
       type: powerup.type,
       x: roundNetworkValue(powerup.position.x),
       y: roundNetworkValue(powerup.position.y),
+    })),
+  });
+}
+
+function receiveGravityMineDeploy(data: Record<string, unknown>): void {
+  if (
+    typeof data.id !== "string" || typeof data.owner !== "string" ||
+    !isFiniteNumber(data.x) || !isFiniteNumber(data.y)
+  ) return;
+  createGravityMine(
+    data.id,
+    data.owner,
+    {
+      x: clampNumber(data.x, -worldWidth / 2, worldWidth / 2),
+      y: clampNumber(data.y, -worldHeight / 2, worldHeight / 2),
+    },
+    isFiniteNumber(data.timer) ? clampNumber(data.timer, 0, gravityMineFuse) : gravityMineFuse,
+  );
+}
+
+function receiveGravityMineSync(data: Record<string, unknown>): void {
+  if (!Array.isArray(data.items)) return;
+  clearGravityMines();
+  for (const item of data.items) {
+    if (!isRecord(item)) continue;
+    receiveGravityMineDeploy(item);
+  }
+}
+
+function broadcastGravityMineSync(): void {
+  if (!joined || !portalsNet || !isPowerupAuthority()) return;
+  portalsNet.send({
+    kind: "gravity-mine-sync",
+    items: [...gravityMines.values()].map((mine) => ({
+      id: mine.id,
+      owner: mine.owner,
+      x: roundNetworkValue(mine.position.x),
+      y: roundNetworkValue(mine.position.y),
+      timer: roundNetworkValue(mine.timer),
     })),
   });
 }
@@ -2132,6 +2501,7 @@ function broadcastGameSettings(): void {
     wormholes: activeGameSettings.wormholes,
     gameMode: activeGameSettings.gameMode,
     scoreToWin: activeGameSettings.scoreToWin,
+    matchDurationSeconds: activeGameSettings.matchDurationSeconds,
   });
 }
 
@@ -2139,9 +2509,14 @@ function receiveGameSettings(data: Record<string, unknown>): void {
   if (!isArenaMapId(data.map) || !Array.isArray(data.powerups)) return;
   const powerups = data.powerups.filter(isPowerupType);
   const wormholes = typeof data.wormholes === "boolean" ? data.wormholes : true;
-  const gameMode = data.gameMode === "top-score" ? "top-score" : "endless";
+  const gameMode = data.gameMode === "top-score"
+    ? "top-score"
+    : data.gameMode === "timed" ? "timed" : "endless";
   const scoreToWin = isFiniteNumber(data.scoreToWin) ? clampNumber(data.scoreToWin, 1, 100) : 5;
-  applyGameSettings({ map: data.map, powerups, wormholes, gameMode, scoreToWin });
+  const matchDurationSeconds = isFiniteNumber(data.matchDurationSeconds)
+    ? clampNumber(Math.round(data.matchDurationSeconds), 30, 3600)
+    : 180;
+  applyGameSettings({ map: data.map, powerups, wormholes, gameMode, scoreToWin, matchDurationSeconds });
   if (joined && portalsNet) {
     portalsNet.send({ kind: "powerup-sync-request" });
     portalsNet.send({ kind: "wormhole-sync-request" });
@@ -2159,6 +2534,7 @@ function applyGameSettings(settings: GameSettings, respawn = true): void {
     activeGameSettings.wormholes === settings.wormholes &&
     activeGameSettings.gameMode === settings.gameMode &&
     activeGameSettings.scoreToWin === settings.scoreToWin &&
+    activeGameSettings.matchDurationSeconds === settings.matchDurationSeconds &&
     activeGameSettings.powerups.length === powerups.length &&
     activeGameSettings.powerups.every((type) => powerups.includes(type));
   if (unchanged) return;
@@ -2170,6 +2546,7 @@ function applyGameSettings(settings: GameSettings, respawn = true): void {
     wormholes: settings.wormholes,
     gameMode: settings.gameMode,
     scoreToWin: settings.scoreToWin,
+    matchDurationSeconds: settings.matchDurationSeconds,
   };
   sectorName.textContent = settings.map === "classic"
     ? "CLASSIC"
@@ -2201,6 +2578,9 @@ function broadcastState(): void {
     tripleShotTimer: roundNetworkValue(tripleShotTimer),
     homingMissileTimer: roundNetworkValue(homingMissileTimer),
     laserTimer: roundNetworkValue(laserTimer),
+    phaseTimer: roundNetworkValue(phaseTimer),
+    afterburnerTimer: roundNetworkValue(afterburnerTimer),
+    reflectorTimer: roundNetworkValue(reflectorTimer),
     thrusting: input.thrust,
     boosting: input.thrust && input.boost && ship.energy > 0,
     respawning: respawnTimer > 0,
@@ -2244,6 +2624,9 @@ function getOrCreateRemotePilot(id: string): RemotePilot {
     tripleShotTimer: 0,
     homingMissileTimer: 0,
     laserTimer: 0,
+    phaseTimer: 0,
+    afterburnerTimer: 0,
+    reflectorTimer: 0,
     thrusting: false,
     boosting: false,
     respawning: false,
@@ -2253,10 +2636,11 @@ function getOrCreateRemotePilot(id: string): RemotePilot {
     wormholeCooldown: 0,
     transiting: false,
     wormholeTransit: null,
+    spectator: false,
   };
   visual.group.visible = false;
   remotePilots.set(id, pilot);
-  scene.add(visual.group);
+  scene.add(visual.group, visual.nameplate);
   return pilot;
 }
 
@@ -2275,6 +2659,9 @@ function spawnCpu(): void {
     tripleShotTimer: 0,
     homingMissileTimer: 0,
     laserTimer: 0,
+    phaseTimer: 0,
+    afterburnerTimer: 0,
+    reflectorTimer: 0,
     thrusting: false,
     boosting: false,
     respawning: false,
@@ -2284,9 +2671,10 @@ function spawnCpu(): void {
     wormholeCooldown: 0,
     transiting: false,
     wormholeTransit: null,
+    spectator: false,
   };
   remotePilots.set(id, pilot);
-  scene.add(pilot.visual.group);
+  scene.add(pilot.visual.group, pilot.visual.nameplate);
   updateRoster([]);
 }
 
@@ -2308,7 +2696,8 @@ function createCpuShip(): ShipState {
 function removeRemotePilot(id: string): void {
   const pilot = remotePilots.get(id);
   if (!pilot) return;
-  scene.remove(pilot.visual.group);
+  scene.remove(pilot.visual.group, pilot.visual.nameplate);
+  disposeShipNameplate(pilot.visual.nameplate);
   remotePilots.delete(id);
   for (let index = bullets.length - 1; index >= 0; index -= 1) {
     if (bullets[index].state.owner === id) removeBullet(index);
@@ -2316,11 +2705,18 @@ function removeRemotePilot(id: string): void {
 }
 
 function clearRemotePilots(): void {
-  for (const pilot of remotePilots.values()) scene.remove(pilot.visual.group);
-  remotePilots.clear();
+  for (const id of [...remotePilots.keys()]) removeRemotePilot(id);
 }
 
 function updateInput(): void {
+  if (localSpectator) {
+    input.thrust = false;
+    input.reverse = false;
+    input.turnLeft = false;
+    input.turnRight = false;
+    input.boost = false;
+    return;
+  }
   input.thrust = heldKeys.has("KeyW") || heldKeys.has("ArrowUp") || gamepadThrust;
   input.reverse = heldKeys.has("KeyS") || heldKeys.has("ArrowDown") || gamepadReverse;
   input.turnLeft = heldKeys.has("KeyA") || heldKeys.has("ArrowLeft") || gamepadTurnLeft;
@@ -2358,6 +2754,12 @@ function pollGamepad(): void {
   const pauseDown = isGamepadButtonDown(gamepad, 9);
   if (pauseDown && !gamepadPauseWasDown) togglePause();
   gamepadPauseWasDown = pauseDown;
+  const spectatorPreviousDown = isGamepadButtonDown(gamepad, 4);
+  const spectatorNextDown = isGamepadButtonDown(gamepad, 5);
+  if (localSpectator && spectatorPreviousDown && !gamepadSpectatorPreviousWasDown) cycleSpectatedPlayer(-1);
+  if (localSpectator && spectatorNextDown && !gamepadSpectatorNextWasDown) cycleSpectatedPlayer(1);
+  gamepadSpectatorPreviousWasDown = spectatorPreviousDown;
+  gamepadSpectatorNextWasDown = spectatorNextDown;
   updateInput();
 }
 
@@ -2395,6 +2797,8 @@ function resetGamepadInput(): void {
   gamepadBoost = false;
   gamepadFire = false;
   gamepadPauseWasDown = false;
+  gamepadSpectatorPreviousWasDown = false;
+  gamepadSpectatorNextWasDown = false;
 }
 
 function createLocalShip(): ShipState {
@@ -2424,7 +2828,10 @@ function findRandomSpawn(): { position: { x: number; y: number }; angle: number 
       distanceSquared(position, pair.first) < (wormholeRadius + config.shipRadius + 8) ** 2 ||
       distanceSquared(position, pair.second) < (wormholeRadius + config.shipRadius + 8) ** 2,
     );
-    if (!insideWall && !insideWormhole) {
+    const insideMine = [...gravityMines.values()].some((mine) =>
+      distanceSquared(position, mine.position) < (gravityMineBlastRadius + config.shipRadius) ** 2,
+    );
+    if (!insideWall && !insideWormhole && !insideMine) {
       return { position, angle: Math.random() * Math.PI * 2 };
     }
   }
@@ -2441,6 +2848,9 @@ function respawnLocalShip(): void {
   tripleShotTimer = 0;
   homingMissileTimer = 0;
   laserTimer = 0;
+  phaseTimer = 0;
+  afterburnerTimer = 0;
+  reflectorTimer = 0;
   wormholeCooldown = 0;
   wormholeTransit = null;
   snapVisualToState(localVisual, ship);
@@ -2458,6 +2868,9 @@ function destroyLocalShip(): void {
   tripleShotTimer = 0;
   homingMissileTimer = 0;
   laserTimer = 0;
+  phaseTimer = 0;
+  afterburnerTimer = 0;
+  reflectorTimer = 0;
   wormholeCooldown = 0;
   wormholeTransit = null;
   ship.energy = 0;
@@ -2594,7 +3007,7 @@ function spawnLaserBeam(start: Vec2, end: Vec2, isLocal: boolean): void {
 
 function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
   let closest: { distance: number; pilot?: RemotePilot; local?: true } | null = null;
-  if (owner !== localId && respawnTimer === 0 && !wormholeTransit) {
+  if (owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0) {
     const distance = segmentCircleHitDistance(start, end, ship.position, config.shipRadius);
     if (distance !== null) closest = { distance, local: true };
   }
@@ -2602,7 +3015,7 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
   const ownerPilot = remotePilots.get(owner);
   if (owner === localId || ownerPilot?.isCpu === true) {
     for (const [id, pilot] of remotePilots) {
-      if (id === owner || pilot.respawning || pilot.transiting) continue;
+      if (id === owner || pilot.respawning || pilot.transiting || pilot.phaseTimer > 0) continue;
       if (owner !== localId && !pilot.isCpu) continue;
       const distance = segmentCircleHitDistance(
         start,
@@ -2617,6 +3030,10 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
   if (!closest) return;
 
   if (closest.local) {
+    if (reflectorTimer > 0) {
+      arcadeAudio.reflect();
+      return;
+    }
     const shielded = shipShield > 0;
     shipShield = applyDamage(ship, shipShield, weaponDamage("laser"));
     if (shielded) arcadeAudio.shieldHit();
@@ -2628,6 +3045,10 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
   const pilot = closest.pilot;
   if (!pilot) return;
   const hitVolume = soundVolumeAt(pilot.state.position) * 0.72;
+  if (pilot.reflectorTimer > 0) {
+    arcadeAudio.reflect(hitVolume);
+    return;
+  }
   if (!pilot.isCpu) {
     if (pilot.shield > 0) arcadeAudio.shieldHit(hitVolume);
     else arcadeAudio.hullHit(hitVolume);
@@ -2669,6 +3090,9 @@ function destroyCpuPilot(pilot: RemotePilot): void {
   pilot.tripleShotTimer = 0;
   pilot.homingMissileTimer = 0;
   pilot.laserTimer = 0;
+  pilot.phaseTimer = 0;
+  pilot.afterburnerTimer = 0;
+  pilot.reflectorTimer = 0;
   pilot.wormholeCooldown = 0;
   pilot.transiting = false;
   pilot.wormholeTransit = null;
@@ -2732,7 +3156,7 @@ function steerHomingMissile(bullet: RenderedBullet, deltaSeconds: number): void 
 function findHomingTarget(bullet: BulletState): Vec2 | null {
   let target: Vec2 | null = null;
   let closestDistance = Number.POSITIVE_INFINITY;
-  if (bullet.owner !== localId && respawnTimer === 0 && !wormholeTransit) {
+  if (bullet.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0) {
     target = ship.position;
     closestDistance = distanceSquared(bullet.position, ship.position);
   }
@@ -2740,7 +3164,7 @@ function findHomingTarget(bullet: BulletState): Vec2 | null {
   const ownerPilot = remotePilots.get(bullet.owner);
   if (bullet.owner !== localId && ownerPilot?.isCpu !== true) return target;
   for (const [id, pilot] of remotePilots) {
-    if (id === bullet.owner || pilot.respawning || pilot.transiting) continue;
+    if (id === bullet.owner || pilot.respawning || pilot.transiting || pilot.phaseTimer > 0) continue;
     const distance = distanceSquared(bullet.position, pilot.state.position);
     if (distance >= closestDistance) continue;
     target = pilot.state.position;
@@ -2753,6 +3177,44 @@ function applyDamage(shipState: ShipState, shield: number, damage: number): numb
   const absorbed = Math.min(shield, damage);
   shipState.energy = Math.max(0, shipState.energy - (damage - absorbed));
   return shield - absorbed;
+}
+
+function findPilotId(target: RemotePilot): string {
+  for (const [id, pilot] of remotePilots) {
+    if (pilot === target) return id;
+  }
+  return "reflected";
+}
+
+function reflectBulletLocally(
+  bullet: RenderedBullet,
+  newOwner: string,
+  reflector: ShipState,
+): void {
+  const speed = Math.max(1, Math.hypot(bullet.state.velocity.x, bullet.state.velocity.y));
+  let offsetX = bullet.state.position.x - reflector.position.x;
+  let offsetY = bullet.state.position.y - reflector.position.y;
+  const offsetLength = Math.hypot(offsetX, offsetY);
+  if (offsetLength < 0.01) {
+    offsetX = -bullet.state.velocity.x / speed;
+    offsetY = -bullet.state.velocity.y / speed;
+  } else {
+    offsetX /= offsetLength;
+    offsetY /= offsetLength;
+  }
+  bullet.state.position.x = reflector.position.x + offsetX * (config.shipRadius + 6);
+  bullet.state.position.y = reflector.position.y + offsetY * (config.shipRadius + 6);
+  bullet.state.velocity.x = offsetX * speed;
+  bullet.state.velocity.y = offsetY * speed;
+  bullet.state.owner = newOwner;
+  updateBulletOwnerVisual(bullet);
+}
+
+function updateBulletOwnerVisual(bullet: RenderedBullet): void {
+  const localOwner = bullet.state.owner === localId;
+  bullet.mesh.material = bullet.weapon === "missile"
+    ? localOwner ? localMissileMaterial : remoteMissileMaterial
+    : localOwner ? localBulletMaterial : remoteBulletMaterial;
 }
 
 function removeBullet(index: number): void {
@@ -2797,7 +3259,9 @@ function randomWormholeDelay(): number {
 
 function resetPowerupState(): void {
   clearPowerups();
+  clearGravityMines();
   powerupCounter = 0;
+  gravityMineCounter = 0;
   powerupSpawnTimer = randomPowerupDelay();
 }
 
@@ -2819,7 +3283,7 @@ function isPowerupAuthority(): boolean {
 }
 
 function isPowerupType(value: unknown): value is PowerupType {
-  return value === "shield" || value === "triple" || value === "missile" || value === "laser";
+  return powerupTypes.includes(value as PowerupType);
 }
 
 function isWeaponType(value: unknown): value is WeaponType {
@@ -2845,6 +3309,72 @@ function stepPowerups(): void {
     if (!pilot.isCpu || pilot.respawning || pilot.transiting) continue;
     const pickup = findPowerupAt(pilot.state.position);
     if (pickup) collectPowerupForPilot(id, pilot, pickup);
+  }
+}
+
+function stepGravityMines(): void {
+  for (const [id, mine] of [...gravityMines]) {
+    mine.timer = Math.max(0, mine.timer - fixedStep);
+    if (
+      mine.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
+    ) {
+      applyGravityMinePull(ship, mine.position);
+    }
+    for (const [pilotId, pilot] of remotePilots) {
+      if (
+        !pilot.isCpu || pilotId === mine.owner || pilot.respawning || pilot.transiting ||
+        pilot.phaseTimer > 0
+      ) continue;
+      applyGravityMinePull(pilot.state, mine.position);
+    }
+    if (mine.timer > 0) continue;
+    explodeGravityMine(mine);
+    removeGravityMine(id);
+    if (joined && portalsNet && isPowerupAuthority()) {
+      portalsNet.send({ kind: "gravity-mine-remove", id });
+    }
+  }
+}
+
+function applyGravityMinePull(state: ShipState, minePosition: Vec2): void {
+  const offsetX = minePosition.x - state.position.x;
+  const offsetY = minePosition.y - state.position.y;
+  const distance = Math.hypot(offsetX, offsetY);
+  if (distance <= 0 || distance >= gravityMinePullRadius) return;
+  const acceleration = gravityMinePullAcceleration * (1 - distance / gravityMinePullRadius);
+  state.velocity.x += (offsetX / distance) * acceleration * fixedStep;
+  state.velocity.y += (offsetY / distance) * acceleration * fixedStep;
+}
+
+function explodeGravityMine(mine: GravityMine): void {
+  spawnExplosion(mine.position);
+  arcadeAudio.mineExplosion(soundVolumeAt(mine.position));
+  if (
+    mine.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
+  ) {
+    const distance = Math.sqrt(distanceSquared(mine.position, ship.position));
+    if (distance < gravityMineBlastRadius) {
+      shipShield = applyDamage(
+        ship,
+        shipShield,
+        gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
+      );
+      if (ship.energy === 0) destroyLocalShip();
+    }
+  }
+  for (const [pilotId, pilot] of remotePilots) {
+    if (
+      !pilot.isCpu || pilotId === mine.owner || pilot.respawning || pilot.transiting ||
+      pilot.phaseTimer > 0
+    ) continue;
+    const distance = Math.sqrt(distanceSquared(mine.position, pilot.state.position));
+    if (distance >= gravityMineBlastRadius) continue;
+    pilot.shield = applyDamage(
+      pilot.state,
+      pilot.shield,
+      gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
+    );
+    if (pilot.state.energy === 0) destroyCpuPilot(pilot);
   }
 }
 
@@ -3083,6 +3613,9 @@ function findRandomPowerupPosition(): Vec2 | null {
     if ([...powerups.values()].some((powerup) =>
       distanceSquared(position, powerup.position) < 75 * 75,
     )) continue;
+    if ([...gravityMines.values()].some((mine) =>
+      distanceSquared(position, mine.position) < 75 * 75,
+    )) continue;
     return position;
   }
   return null;
@@ -3137,17 +3670,26 @@ function clearWormholes(): void {
 
 function collectPowerupForLocal(powerup: Powerup): void {
   arcadeAudio.powerup(powerup.type);
+  if (powerup.type === "gravity") deployGravityMine(localId, ship.position);
+  if (powerup.type === "fuel") ship.energy = config.maxEnergy;
+  if (powerup.type === "overcharge") ship.energy = config.maxEnergy * 2;
   applyPowerup(
     powerup.type,
     shipShield,
     tripleShotTimer,
     homingMissileTimer,
     laserTimer,
-    (shield, triple, missile, activeLaser) => {
-    shipShield = shield;
-    tripleShotTimer = triple;
+    phaseTimer,
+    afterburnerTimer,
+    reflectorTimer,
+    (shield, triple, missile, activeLaser, phase, afterburner, reflector) => {
+      shipShield = shield;
+      tripleShotTimer = triple;
       homingMissileTimer = missile;
       laserTimer = activeLaser;
+      phaseTimer = phase;
+      afterburnerTimer = afterburner;
+      reflectorTimer = reflector;
     },
   );
   removePowerup(powerup.id);
@@ -3160,17 +3702,26 @@ function collectPowerupForPilot(id: string, pilot: RemotePilot, powerup?: Poweru
   const pickup = powerup ?? findPowerupAt(pilot.state.position);
   if (!pickup) return;
   arcadeAudio.powerup(pickup.type, soundVolumeAt(pilot.state.position) * 0.65);
+  if (pickup.type === "gravity") deployGravityMine(id, pilot.state.position);
+  if (pickup.type === "fuel") pilot.state.energy = config.maxEnergy;
+  if (pickup.type === "overcharge") pilot.state.energy = config.maxEnergy * 2;
   applyPowerup(
     pickup.type,
     pilot.shield,
     pilot.tripleShotTimer,
     pilot.homingMissileTimer,
     pilot.laserTimer,
-    (shield, triple, missile, activeLaser) => {
+    pilot.phaseTimer,
+    pilot.afterburnerTimer,
+    pilot.reflectorTimer,
+    (shield, triple, missile, activeLaser, phase, afterburner, reflector) => {
       pilot.shield = shield;
       pilot.tripleShotTimer = triple;
       pilot.homingMissileTimer = missile;
       pilot.laserTimer = activeLaser;
+      pilot.phaseTimer = phase;
+      pilot.afterburnerTimer = afterburner;
+      pilot.reflectorTimer = reflector;
     },
   );
   removePowerup(pickup.id);
@@ -3185,21 +3736,33 @@ function applyPowerup(
   currentTripleTimer: number,
   currentMissileTimer: number,
   currentLaserTimer: number,
+  currentPhaseTimer: number,
+  currentAfterburnerTimer: number,
+  currentReflectorTimer: number,
   setValues: (
     shield: number,
     tripleTimer: number,
     missileTimer: number,
     activeLaserTimer: number,
+    phaseTimer: number,
+    afterburnerTimer: number,
+    reflectorTimer: number,
   ) => void,
 ): void {
   if (type === "shield") {
-    setValues(shieldCapacity, currentTripleTimer, currentMissileTimer, currentLaserTimer);
+    setValues(
+      shieldCapacity, currentTripleTimer, currentMissileTimer, currentLaserTimer,
+      currentPhaseTimer, currentAfterburnerTimer, currentReflectorTimer,
+    );
   } else if (type === "triple") {
     setValues(
       currentShield,
       Math.max(currentTripleTimer, tripleShotDuration),
       currentMissileTimer,
       currentLaserTimer,
+      currentPhaseTimer,
+      currentAfterburnerTimer,
+      currentReflectorTimer,
     );
   } else if (type === "missile") {
     setValues(
@@ -3207,13 +3770,41 @@ function applyPowerup(
       currentTripleTimer,
       Math.max(currentMissileTimer, homingMissileDuration),
       0,
+      currentPhaseTimer,
+      currentAfterburnerTimer,
+      currentReflectorTimer,
     );
-  } else {
+  } else if (type === "laser") {
     setValues(
       currentShield,
       currentTripleTimer,
       0,
       Math.max(currentLaserTimer, laserDuration),
+      currentPhaseTimer,
+      currentAfterburnerTimer,
+      currentReflectorTimer,
+    );
+  } else if (type === "phase") {
+    setValues(
+      currentShield, currentTripleTimer, currentMissileTimer, currentLaserTimer,
+      Math.max(currentPhaseTimer, phaseDuration), currentAfterburnerTimer, currentReflectorTimer,
+    );
+  } else if (type === "afterburner") {
+    setValues(
+      currentShield, currentTripleTimer, currentMissileTimer, currentLaserTimer,
+      currentPhaseTimer, Math.max(currentAfterburnerTimer, afterburnerDuration),
+      currentReflectorTimer,
+    );
+  } else if (type === "reflector") {
+    setValues(
+      currentShield, currentTripleTimer, currentMissileTimer, currentLaserTimer,
+      currentPhaseTimer, currentAfterburnerTimer,
+      Math.max(currentReflectorTimer, reflectorDuration),
+    );
+  } else {
+    setValues(
+      currentShield, currentTripleTimer, currentMissileTimer, currentLaserTimer,
+      currentPhaseTimer, currentAfterburnerTimer, currentReflectorTimer,
     );
   }
 }
@@ -3230,22 +3821,92 @@ function clearPowerups(): void {
   for (const id of [...powerups.keys()]) removePowerup(id);
 }
 
+function deployGravityMine(owner: string, position: Vec2): void {
+  gravityMineCounter += 1;
+  const id = `gravity-mine-${owner}-${gravityMineCounter}`;
+  createGravityMine(id, owner, position, gravityMineFuse);
+  if (joined && portalsNet) {
+    portalsNet.send({
+      kind: "gravity-mine-deploy",
+      id,
+      owner,
+      x: roundNetworkValue(position.x),
+      y: roundNetworkValue(position.y),
+      timer: gravityMineFuse,
+    });
+  }
+}
+
+function createGravityMine(
+  id: string,
+  owner: string,
+  position: Vec2,
+  timer = gravityMineFuse,
+): void {
+  if (gravityMines.has(id)) return;
+  const visual = createGravityMineVisual();
+  visual.position.set(position.x, position.y, 1.4);
+  scene.add(visual);
+  gravityMines.set(id, {
+    id,
+    owner,
+    position: { ...position },
+    timer: clampNumber(timer, 0, gravityMineFuse),
+    visual,
+  });
+}
+
+function removeGravityMine(id: string): void {
+  const mine = gravityMines.get(id);
+  if (!mine) return;
+  scene.remove(mine.visual);
+  disposePowerupVisual(mine.visual);
+  gravityMines.delete(id);
+}
+
+function clearGravityMines(): void {
+  for (const id of [...gravityMines.keys()]) removeGravityMine(id);
+}
+
+function createGravityMineVisual(): THREE.Group {
+  const group = new THREE.Group();
+  const field = new THREE.Group();
+  field.name = "mine-field";
+  field.add(
+    createRadialLoop(18, 28, 0xc77dff, 0.75, 1.4),
+    createRadialLoop(27, 36, 0x6f4dff, 0.3, 1.8),
+    createRadialLoop(38, 44, 0x4b32a8, 0.14, 2.2),
+  );
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(7, 14, 10),
+    glowMaterial(0xf1deff, 0.82),
+  );
+  core.name = "mine-core";
+  const halo = new THREE.Mesh(
+    new THREE.CircleGeometry(20, 28),
+    glowMaterial(0x9d63ff, 0.08),
+  );
+  halo.name = "mine-halo";
+  halo.position.z = -0.3;
+  group.add(halo, field, core);
+  return group;
+}
+
 function createPowerupVisual(type: PowerupType): THREE.Group {
   const group = new THREE.Group();
-  const color = type === "shield"
-    ? 0xc8f5ff
-    : type === "triple"
-      ? 0xffd166
-      : type === "missile"
-        ? 0xff8f70
-        : 0x8dfff1;
-  const accent = type === "shield"
-    ? 0x69ddff
-    : type === "triple"
-      ? 0xff7a45
-      : type === "missile"
-        ? 0xff405f
-        : 0x35d7ff;
+  const colors: Record<PowerupType, [number, number]> = {
+    shield: [0xc8f5ff, 0x69ddff],
+    triple: [0xffd166, 0xff7a45],
+    missile: [0xff8f70, 0xff405f],
+    laser: [0x8dfff1, 0x35d7ff],
+    phase: [0xd9c8ff, 0x936dff],
+    afterburner: [0xffb36b, 0xff553d],
+    gravity: [0xdca8ff, 0x713dff],
+    reflector: [0x8ffff3, 0x27a8ff],
+    fuel: [0xb0ffdc, 0x35e89a],
+    overcharge: [0x7dffe6, 0x27baff],
+  };
+  const [color, accent] = colors[type];
   const aura = new THREE.Mesh(
     new THREE.PlaneGeometry(30, 30),
     glowMaterial(color, 0.16),
@@ -3336,7 +3997,7 @@ function createPowerupVisual(type: PowerupType): THREE.Group {
     const exhaust = new THREE.Mesh(new THREE.PlaneGeometry(4, 7), glowMaterial(accent, 0.8));
     exhaust.position.y = -8;
     icon.add(exhaust);
-  } else {
+  } else if (type === "laser") {
     const beam = new THREE.Mesh(new THREE.PlaneGeometry(4, 20), glowMaterial(0xffffff, 0.95));
     icon.add(beam);
     for (const x of [-5, 5]) {
@@ -3344,6 +4005,57 @@ function createPowerupVisual(type: PowerupType): THREE.Group {
       rail.position.x = x;
       icon.add(rail);
     }
+  } else if (type === "phase") {
+    icon.add(
+      createRadialLoop(5, 24, 0xffffff, 0.95, 0.5),
+      createRadialLoop(9, 28, accent, 0.72, 1.2),
+      createRadialLoop(13, 32, color, 0.42, 1.8),
+    );
+  } else if (type === "afterburner") {
+    for (const x of [-5, 2]) {
+      const chevron = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(x - 4, -8, 0.3),
+          new THREE.Vector3(x + 4, 0, 0.3),
+          new THREE.Vector3(x - 4, 8, 0.3),
+        ]),
+        glowLineMaterial(x < 0 ? accent : 0xffffff, 0.9),
+      );
+      icon.add(chevron);
+    }
+  } else if (type === "gravity") {
+    icon.add(
+      new THREE.Mesh(new THREE.CircleGeometry(4, 16), glowMaterial(0xffffff, 0.95)),
+      createRadialLoop(9, 28, accent, 0.8, 1.2),
+      createRadialLoop(14, 34, color, 0.45, 1.8),
+    );
+  } else if (type === "fuel") {
+    const tank = new THREE.Mesh(new THREE.PlaneGeometry(12, 16), glowMaterial(color, 0.82));
+    const tankCore = new THREE.Mesh(new THREE.PlaneGeometry(7, 11), glowMaterial(0xffffff, 0.5));
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(6, 3), glowMaterial(accent, 0.9));
+    cap.position.y = 9.5;
+    icon.add(tank, tankCore, cap);
+  } else if (type === "overcharge") {
+    const boltShape = new THREE.Shape();
+    boltShape.moveTo(2, 11);
+    boltShape.lineTo(-7, 1);
+    boltShape.lineTo(-1, 1);
+    boltShape.lineTo(-4, -11);
+    boltShape.lineTo(8, 3);
+    boltShape.lineTo(2, 3);
+    boltShape.closePath();
+    icon.add(
+      new THREE.Mesh(new THREE.ShapeGeometry(boltShape), glowMaterial(0xffffff, 0.95)),
+      createRadialLoop(13, 30, accent, 0.62, 1.1),
+    );
+  } else {
+    icon.add(
+      createRadialLoop(12, 32, color, 0.82, 1.5),
+      createRadialLoop(7, 26, 0xffffff, 0.7, 0.8),
+    );
+    const arrow = new THREE.Mesh(createSparkleGeometry(4.5), glowMaterial(accent, 0.9));
+    arrow.position.set(-9, 7, 0.4);
+    icon.add(arrow);
   }
   group.add(icon);
   return group;
@@ -3672,6 +4384,23 @@ function updatePowerupVisuals(frameDelta: number): void {
         material.opacity = material.userData.baseOpacity * twinkle;
       });
     }
+  }
+}
+
+function updateGravityMineVisuals(frameDelta: number): void {
+  const time = performance.now() * 0.001;
+  for (const mine of gravityMines.values()) {
+    mine.visual.position.set(mine.position.x, mine.position.y, 1.4);
+    const urgency = 1 - THREE.MathUtils.clamp(mine.timer / gravityMineFuse, 0, 1);
+    const field = mine.visual.getObjectByName("mine-field");
+    const core = mine.visual.getObjectByName("mine-core");
+    const halo = mine.visual.getObjectByName("mine-halo");
+    if (field) {
+      field.rotation.z -= frameDelta * (0.55 + urgency * 2.2);
+      field.scale.setScalar(0.88 + Math.sin(time * (3 + urgency * 8)) * (0.04 + urgency * 0.08));
+    }
+    if (core) core.scale.setScalar(0.82 + urgency * 0.5 + Math.sin(time * 10) * 0.08);
+    if (halo) halo.scale.setScalar(0.9 + Math.sin(time * 4.2) * 0.12 + urgency * 0.22);
   }
 }
 
@@ -4036,9 +4765,16 @@ function setSettingsModalVisible(visible: boolean): void {
   settingsModal.classList.toggle("hidden", !visible);
   settingsButton.setAttribute("aria-expanded", String(visible));
   if (visible) {
+    const inSession = joined || offline;
+    settingsMatchInfo.classList.toggle("hidden", !inSession);
+    settingsLeaveMatchButton.classList.toggle("hidden", !inSession);
+    settingsLeaveMatchButton.textContent = offline ? "LEAVE PRACTICE" : "LEAVE MATCH";
+    settingsPlayerNamesInput.checked = showPlayerNames;
     settingsGameMode.textContent = activeGameSettings.gameMode === "top-score"
       ? `TOP SCORE · ${activeGameSettings.scoreToWin} POINTS`
-      : "ENDLESS";
+      : activeGameSettings.gameMode === "timed"
+        ? `TIMED MATCH · ${Math.round(activeGameSettings.matchDurationSeconds / 60)} MIN`
+        : "ENDLESS";
     settingsMap.textContent = activeGameSettings.map === "classic"
       ? "CLASSIC ARENA"
       : activeGameSettings.map === "crossroads" ? "CROSSROADS" : "OPEN VOID";
@@ -4048,6 +4784,29 @@ function setSettingsModalVisible(visible: boolean): void {
     closeSettingsButton.focus();
   } else if (!settingsButton.classList.contains("hidden")) {
     settingsButton.focus();
+  }
+}
+
+function loadPlayerNamesPreference(): boolean {
+  try {
+    return window.localStorage.getItem("vectorfall:show-player-names") !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function savePlayerNamesPreference(visible: boolean): void {
+  try {
+    window.localStorage.setItem("vectorfall:show-player-names", String(visible));
+  } catch {
+    // Sandboxed hosts may disable storage; the setting still applies for this session.
+  }
+}
+
+function updateAllNameplateVisibility(): void {
+  localVisual.nameplate.visible = showPlayerNames && localVisual.group.visible;
+  for (const pilot of remotePilots.values()) {
+    pilot.visual.nameplate.visible = showPlayerNames && pilot.visual.group.visible;
   }
 }
 
@@ -4107,6 +4866,18 @@ const fixedStep = 1 / 120;
 let accumulator = 0;
 let previousTime = performance.now();
 
+function flightConfigWithAfterburner(timer: number): FlightConfig {
+  if (timer <= 0) return config;
+  return {
+    ...config,
+    thrust: config.thrust * 1.55,
+    reverseThrust: config.reverseThrust * 1.3,
+    maxSpeed: config.maxSpeed * 1.35,
+    boostEnergyPerSecond: config.boostEnergyPerSecond * 0.7,
+    energyRechargePerSecond: config.energyRechargePerSecond * 1.8,
+  };
+}
+
 function frame(time: number): void {
   const frameDelta = Math.min((time - previousTime) / 1000, 0.1);
   previousTime = time;
@@ -4139,9 +4910,10 @@ function simulateFixedStep(): void {
     respawnTimer = Math.max(0, respawnTimer - fixedStep);
     if (respawnTimer === 0) respawnLocalShip();
   } else if (!wormholeTransit) {
-    stepShip(ship, input, config, fixedStep);
+    stepShip(ship, input, flightConfigWithAfterburner(afterburnerTimer), fixedStep);
     const collisionSpeed = speedOf(ship);
-    for (const wall of walls) {
+    for (const [wallIndex, wall] of walls.entries()) {
+      if (phaseTimer > 0 && wallIndex >= arenaBoundary.length) continue;
       const collided = resolveCircleAgainstRect(
         ship,
         wall,
@@ -4156,6 +4928,9 @@ function simulateFixedStep(): void {
     tripleShotTimer = Math.max(0, tripleShotTimer - fixedStep);
     homingMissileTimer = Math.max(0, homingMissileTimer - fixedStep);
     laserTimer = Math.max(0, laserTimer - fixedStep);
+    phaseTimer = Math.max(0, phaseTimer - fixedStep);
+    afterburnerTimer = Math.max(0, afterburnerTimer - fixedStep);
+    reflectorTimer = Math.max(0, reflectorTimer - fixedStep);
     if ((heldKeys.has("Space") || gamepadFire) && weaponCooldown <= 0) {
       const weapon = activeWeapon(homingMissileTimer, laserTimer);
       if (weapon === "laser") {
@@ -4180,6 +4955,7 @@ function simulateFixedStep(): void {
 
   stepCpuPilots();
   stepPowerups();
+  stepGravityMines();
   stepWormholes();
 
   for (let index = bullets.length - 1; index >= 0; index -= 1) {
@@ -4196,6 +4972,7 @@ function simulateFixedStep(): void {
       bullet.state.owner !== localId &&
       respawnTimer === 0 &&
       !wormholeTransit &&
+      phaseTimer <= 0 &&
       circlesIntersect(bullet.state.position, collisionRadius, ship.position, config.shipRadius);
     const ownerPilot = remotePilots.get(bullet.state.owner);
     const canHitRemotePilot =
@@ -4206,6 +4983,7 @@ function simulateFixedStep(): void {
             id !== bullet.state.owner &&
             !pilot.respawning &&
             !pilot.transiting &&
+            pilot.phaseTimer <= 0 &&
             (bullet.state.owner === localId || ownerPilot?.isCpu === true) &&
             circlesIntersect(
               bullet.state.position,
@@ -4217,7 +4995,12 @@ function simulateFixedStep(): void {
       : undefined;
     const hitRemote = Boolean(hitRemotePilot);
 
-    if (hitLocal) {
+    let reflected = false;
+    if (hitLocal && reflectorTimer > 0) {
+      reflectBulletLocally(bullet, localId, ship);
+      arcadeAudio.reflect();
+      reflected = true;
+    } else if (hitLocal) {
       const shielded = shipShield > 0;
       shipShield = applyDamage(ship, shipShield, weaponDamage(bullet.weapon));
       if (shielded) arcadeAudio.shieldHit();
@@ -4226,8 +5009,11 @@ function simulateFixedStep(): void {
         destroyLocalShip();
         return;
       }
-    }
-    if (hitRemotePilot?.isCpu) {
+    } else if (hitRemotePilot?.reflectorTimer && hitRemotePilot.reflectorTimer > 0) {
+      reflectBulletLocally(bullet, findPilotId(hitRemotePilot), hitRemotePilot.state);
+      arcadeAudio.reflect(soundVolumeAt(hitRemotePilot.state.position));
+      reflected = true;
+    } else if (hitRemotePilot?.isCpu) {
       const shielded = hitRemotePilot.shield > 0;
       hitRemotePilot.shield = applyDamage(
         hitRemotePilot.state,
@@ -4245,7 +5031,7 @@ function simulateFixedStep(): void {
       if (hitRemotePilot.shield > 0) arcadeAudio.shieldHit(hitVolume);
       else arcadeAudio.hullHit(hitVolume);
     }
-    if (bullet.state.lifetime <= 0 || hitLocal || hitRemote) {
+    if (bullet.state.lifetime <= 0 || ((hitLocal || hitRemote) && !reflected)) {
       if (index < bullets.length) removeBullet(index);
     }
   }
@@ -4269,7 +5055,7 @@ function simulateHostedFixedStep(): void {
     return;
   }
 
-  if (serverRoundPhase !== "playing") return;
+  if ((serverRoundPhase !== "playing" && serverRoundPhase !== "sudden-death") || localSpectator) return;
 
   if (respawnTimer <= 0 && !wormholeTransit) {
     // Predict only the local ship for responsive controls. Every server snapshot
@@ -4342,6 +5128,9 @@ function stepCpuPilots(): void {
     pilot.tripleShotTimer = Math.max(0, pilot.tripleShotTimer - fixedStep);
     pilot.homingMissileTimer = Math.max(0, pilot.homingMissileTimer - fixedStep);
     pilot.laserTimer = Math.max(0, pilot.laserTimer - fixedStep);
+    pilot.phaseTimer = Math.max(0, pilot.phaseTimer - fixedStep);
+    pilot.afterburnerTimer = Math.max(0, pilot.afterburnerTimer - fixedStep);
+    pilot.reflectorTimer = Math.max(0, pilot.reflectorTimer - fixedStep);
 
     if (pilot.cpuRespawnTimer > 0) {
       pilot.cpuRespawnTimer = Math.max(0, pilot.cpuRespawnTimer - fixedStep);
@@ -4351,6 +5140,9 @@ function stepCpuPilots(): void {
         pilot.tripleShotTimer = 0;
         pilot.homingMissileTimer = 0;
         pilot.laserTimer = 0;
+        pilot.phaseTimer = 0;
+        pilot.afterburnerTimer = 0;
+        pilot.reflectorTimer = 0;
         pilot.wormholeCooldown = 0;
         pilot.transiting = false;
         pilot.wormholeTransit = null;
@@ -4378,8 +5170,14 @@ function stepCpuPilots(): void {
     const command = computeCpuCommand(pilot.state, target, config);
     pilot.thrusting = command.input.thrust;
     pilot.boosting = command.input.boost;
-    stepShip(pilot.state, command.input, config, fixedStep);
-    for (const wall of walls) {
+    stepShip(
+      pilot.state,
+      command.input,
+      flightConfigWithAfterburner(pilot.afterburnerTimer),
+      fixedStep,
+    );
+    for (const [wallIndex, wall] of walls.entries()) {
+      if (pilot.phaseTimer > 0 && wallIndex >= arenaBoundary.length) continue;
       resolveCircleAgainstRect(
         pilot.state,
         wall,
@@ -4417,13 +5215,17 @@ function stepCpuPilots(): void {
 }
 
 function findCpuTarget(cpuId: string, cpu: ShipState): ShipState | null {
-  let target: ShipState | null = respawnTimer === 0 && !wormholeTransit ? ship : null;
+  let target: ShipState | null = respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
+    ? ship
+    : null;
   let closestDistance = target
     ? distanceSquared(cpu.position, target.position)
     : Number.POSITIVE_INFINITY;
 
   for (const [id, pilot] of remotePilots) {
-    if (id === cpuId || !pilot.isCpu || pilot.respawning || pilot.transiting) continue;
+    if (
+      id === cpuId || !pilot.isCpu || pilot.respawning || pilot.transiting || pilot.phaseTimer > 0
+    ) continue;
     const distance = distanceSquared(cpu.position, pilot.state.position);
     if (distance >= closestDistance) continue;
     target = pilot.state;
@@ -4444,11 +5246,15 @@ function soundVolumeAt(position: Vec2): number {
 }
 
 function updateEnemyEnergyHud(): void {
+  if (localSpectator) {
+    enemyHud.classList.add("hidden");
+    return;
+  }
   let target: [string, RemotePilot] | undefined;
   let closestDistance = Number.POSITIVE_INFINITY;
   for (const entry of remotePilots.entries()) {
     const [, pilot] = entry;
-    if (pilot.respawning || pilot.transiting || !pilot.visualReady) continue;
+    if (pilot.spectator || pilot.respawning || pilot.transiting || !pilot.visualReady) continue;
     const distance = distanceSquared(ship.position, pilot.state.position);
     if (distance >= closestDistance) continue;
     closestDistance = distance;
@@ -4476,6 +5282,7 @@ function updateEnemyEnergyHud(): void {
   enemyEnergyValue.textContent = Math.round(pilot.state.energy).toString().padStart(3, "0");
   enemyEnergyFill.style.width = `${energyPercent}%`;
   enemyEnergyFill.classList.toggle("low", energyPercent < 25);
+  enemyEnergyFill.classList.toggle("overcharged", pilot.state.energy > config.maxEnergy);
   enemyHud.classList.remove("hidden");
 }
 
@@ -4483,18 +5290,24 @@ function renderWorld(frameDelta: number): void {
   const renderTime = performance.now() * 0.001;
   localVisual.group.position.set(ship.position.x, ship.position.y, 1);
   localVisual.group.rotation.z = ship.angle;
-  localVisual.group.visible = respawnTimer === 0 && !wormholeTransit;
+  localVisual.group.visible = !localSpectator && respawnTimer === 0 && !wormholeTransit;
+  updateShipNameplate(
+    localVisual,
+    offline ? "You" : multiplayerDisplayName(localId) ?? "You",
+    ship.position,
+  );
   updateShieldVisual(localVisual, shipShield);
+  updateShipPowerupVisuals(localVisual, phaseTimer, reflectorTimer, renderTime);
   const boosting = input.boost && input.thrust && ship.energy > 0 && !paused;
   updateThrusterVisual(
     localVisual,
     input.thrust && !paused && respawnTimer === 0 && !wormholeTransit,
-    boosting,
+    boosting || afterburnerTimer > 0,
     renderTime,
   );
 
   const interpolation = 1 - Math.exp(-12 * frameDelta);
-  for (const pilot of remotePilots.values()) {
+  for (const [id, pilot] of remotePilots) {
     pilot.visual.group.position.x +=
       (pilot.state.position.x - pilot.visual.group.position.x) * interpolation;
     pilot.visual.group.position.y +=
@@ -4502,11 +5315,24 @@ function renderWorld(frameDelta: number): void {
     const angleDifference = normalizeAngle(pilot.state.angle - pilot.visual.group.rotation.z);
     pilot.visual.group.rotation.z += angleDifference * interpolation;
     updateShieldVisual(pilot.visual, pilot.shield);
+    updateShipPowerupVisuals(
+      pilot.visual,
+      pilot.phaseTimer,
+      pilot.reflectorTimer,
+      renderTime,
+    );
     updateThrusterVisual(
       pilot.visual,
       pilot.thrusting && !pilot.respawning && !pilot.transiting && !paused,
-      pilot.boosting,
+      pilot.boosting || pilot.afterburnerTimer > 0,
       renderTime,
+    );
+    pilot.visual.group.visible = pilot.visualReady && !pilot.spectator &&
+      !pilot.respawning && !pilot.transiting;
+    updateShipNameplate(
+      pilot.visual,
+      pilot.isCpu ? `CPU ${id.replace("cpu-", "")}` : multiplayerDisplayName(id) ?? unknownEnemyName(id),
+      pilot.visual.group.position,
     );
   }
 
@@ -4520,10 +5346,17 @@ function renderWorld(frameDelta: number): void {
   if (!paused) updateExplosions(frameDelta);
   if (!paused) updateLaserBeams(frameDelta);
   if (!paused) updatePowerupVisuals(frameDelta);
+  if (!paused) updateGravityMineVisuals(frameDelta);
   if (!paused) updateWormholeVisuals(frameDelta);
   if (!paused) updateWormholeJumpEffects(frameDelta);
 
-  if (wormholeTransit) {
+  const spectatedPilot = localSpectator ? remotePilots.get(spectatedPlayerId) : undefined;
+  if (spectatedPilot && !spectatedPilot.spectator) {
+    cameraTarget.set(spectatedPilot.state.position.x, spectatedPilot.state.position.y, 0);
+    const cameraLerp = 1 - Math.exp(-5 * frameDelta);
+    camera.position.x += (cameraTarget.x - camera.position.x) * cameraLerp;
+    camera.position.y += (cameraTarget.y - camera.position.y) * cameraLerp;
+  } else if (wormholeTransit) {
     const jumpProgress = 1 - wormholeTransit.remaining / wormholeTransitDuration;
     const travelProgress = smoothStep01(jumpProgress);
     cameraTarget.set(
@@ -4562,12 +5395,14 @@ function renderWorld(frameDelta: number): void {
   updateLine(velocityLine, ship.velocity.x * 0.35, ship.velocity.y * 0.35);
   updateLine(headingLine, Math.cos(ship.angle) * 45, Math.sin(ship.angle) * 45);
 
-  const energyPercent = Math.max(0, (ship.energy / config.maxEnergy) * 100);
+  const energyPercent = THREE.MathUtils.clamp((ship.energy / config.maxEnergy) * 100, 0, 100);
   energyFill.style.width = `${energyPercent}%`;
   energyFill.classList.toggle("low", energyPercent < 25);
+  energyFill.classList.toggle("overcharged", ship.energy > config.maxEnergy);
   energyValue.textContent = Math.round(ship.energy).toString().padStart(3, "0");
   updateEnemyEnergyHud();
   updatePowerupTray();
+  if (localSpectator) powerupTray.classList.add("hidden");
   speedValue.textContent = Math.round(speedOf(ship)).toString().padStart(3, "0");
   positionValue.textContent = `${Math.round(ship.position.x)}, ${Math.round(ship.position.y)}`;
   stateValue.textContent = !joined && !offline
@@ -4582,6 +5417,8 @@ function renderWorld(frameDelta: number): void {
             ? "IMPACT"
             : boosting
               ? "BOOST"
+              : afterburnerTimer > 0
+                ? "AFTERBURN"
               : input.thrust || input.reverse
                 ? "THRUST"
                 : "DRIFT";
@@ -4595,12 +5432,24 @@ function updatePowerupTray(): void {
   const tripleActive = inSession && tripleShotTimer > 0;
   const missileActive = inSession && homingMissileTimer > 0;
   const laserActive = inSession && laserTimer > 0;
-  const anyActive = shieldActive || tripleActive || missileActive || laserActive;
+  const phaseActive = inSession && phaseTimer > 0;
+  const afterburnerActive = inSession && afterburnerTimer > 0;
+  const reflectorActive = inSession && reflectorTimer > 0;
+  const ownedMines = [...gravityMines.values()]
+    .filter((mine) => mine.owner === localId)
+    .sort((first, second) => first.timer - second.timer);
+  const gravityActive = inSession && ownedMines.length > 0;
+  const anyActive = shieldActive || tripleActive || missileActive || laserActive ||
+    phaseActive || afterburnerActive || gravityActive || reflectorActive;
   powerupTray.classList.toggle("hidden", !anyActive);
   shieldPowerupCard.classList.toggle("hidden", !shieldActive);
   triplePowerupCard.classList.toggle("hidden", !tripleActive);
   missilePowerupCard.classList.toggle("hidden", !missileActive);
   laserPowerupCard.classList.toggle("hidden", !laserActive);
+  phasePowerupCard.classList.toggle("hidden", !phaseActive);
+  afterburnerPowerupCard.classList.toggle("hidden", !afterburnerActive);
+  gravityPowerupCard.classList.toggle("hidden", !gravityActive);
+  reflectorPowerupCard.classList.toggle("hidden", !reflectorActive);
   chatPanel.classList.toggle("powerups-active", anyActive);
 
   if (shieldActive) {
@@ -4633,6 +5482,37 @@ function updatePowerupTray(): void {
     laserPowerupValue.textContent = `${laserTimer.toFixed(1)}s`;
     laserPowerupFill.style.width = `${laserPercent}%`;
     laserPowerupCard.classList.toggle("expiring", laserTimer <= 3);
+  }
+
+  if (phaseActive) {
+    const percent = THREE.MathUtils.clamp(phaseTimer / phaseDuration, 0, 1) * 100;
+    phasePowerupValue.textContent = `${phaseTimer.toFixed(1)}s`;
+    phasePowerupFill.style.width = `${percent}%`;
+    phasePowerupCard.classList.toggle("expiring", phaseTimer <= 2);
+  }
+
+  if (afterburnerActive) {
+    const percent = THREE.MathUtils.clamp(afterburnerTimer / afterburnerDuration, 0, 1) * 100;
+    afterburnerPowerupValue.textContent = `${afterburnerTimer.toFixed(1)}s`;
+    afterburnerPowerupFill.style.width = `${percent}%`;
+    afterburnerPowerupCard.classList.toggle("expiring", afterburnerTimer <= 3);
+  }
+
+  if (gravityActive) {
+    const mineTimer = ownedMines[0].timer;
+    const percent = THREE.MathUtils.clamp(mineTimer / gravityMineFuse, 0, 1) * 100;
+    gravityPowerupValue.textContent = ownedMines.length > 1
+      ? `${ownedMines.length} · ${mineTimer.toFixed(1)}s`
+      : `${mineTimer.toFixed(1)}s`;
+    gravityPowerupFill.style.width = `${percent}%`;
+    gravityPowerupCard.classList.toggle("expiring", mineTimer <= 1);
+  }
+
+  if (reflectorActive) {
+    const percent = THREE.MathUtils.clamp(reflectorTimer / reflectorDuration, 0, 1) * 100;
+    reflectorPowerupValue.textContent = `${reflectorTimer.toFixed(1)}s`;
+    reflectorPowerupFill.style.width = `${percent}%`;
+    reflectorPowerupCard.classList.toggle("expiring", reflectorTimer <= 3);
   }
 }
 
@@ -4709,6 +5589,27 @@ function updateShieldVisual(visual: ShipVisual, shield: number): void {
   visual.shield.scale.setScalar(1 + Math.sin(time * 2.2) * 0.025);
 }
 
+function updateShipPowerupVisuals(
+  visual: ShipVisual,
+  activePhaseTimer: number,
+  activeReflectorTimer: number,
+  time: number,
+): void {
+  visual.phaseField.visible = activePhaseTimer > 0;
+  if (activePhaseTimer > 0) {
+    visual.phaseField.rotation.z = time * 0.55;
+    visual.phaseField.scale.setScalar(0.95 + Math.sin(time * 5.2) * 0.08);
+    setVisualOpacity(visual.phaseField, 0.45 + Math.sin(time * 8) * 0.16);
+  }
+  visual.reflector.visible = activeReflectorTimer > 0;
+  if (activeReflectorTimer > 0) {
+    visual.reflector.rotation.x = time * 0.27;
+    visual.reflector.rotation.y = -time * 0.34;
+    visual.reflector.rotation.z = time * 0.42;
+    visual.reflector.scale.setScalar(1 + Math.sin(time * 4.4) * 0.035);
+  }
+}
+
 function createShieldSphereMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -4756,6 +5657,7 @@ function createShieldSphereMaterial(): THREE.ShaderMaterial {
 
 function createShipVisual(fill: number, outline: number, exhaustColor: number): ShipVisual {
   const group = new THREE.Group();
+  const nameplate = createShipNameplate();
   const shipWidthScale = 1.2;
   const shape = new THREE.Shape()
     .moveTo(18, 0)
@@ -4821,8 +5723,97 @@ function createShipVisual(fill: number, outline: number, exhaustColor: number): 
   shield.add(bubble, sphereGrid, shieldTwinkles, innerShield, outerShield);
   setVisualOpacity(shield, 0);
   shield.visible = false;
-  group.add(mesh, edges, exhaust, shield);
-  return { group, exhaust, shield };
+
+  const phaseField = new THREE.Group();
+  phaseField.name = "phase-field";
+  phaseField.add(
+    createRadialLoop(25, 40, 0xbda3ff, 0.35, 2.1),
+    createRadialLoop(30, 44, 0x7955ff, 0.2, 2.8),
+  );
+  phaseField.visible = false;
+
+  const reflector = new THREE.Group();
+  reflector.name = "reflector-field";
+  const reflectorGrid = new THREE.Mesh(
+    new THREE.SphereGeometry(27, 18, 12),
+    glowMaterial(0x8ffff3, 0.14),
+  );
+  (reflectorGrid.material as THREE.MeshBasicMaterial).wireframe = true;
+  reflector.add(
+    reflectorGrid,
+    createRadialLoop(29, 42, 0x8ffff3, 0.5, 1.2),
+    createRadialLoop(25, 38, 0x27a8ff, 0.32, 1.7),
+  );
+  reflector.visible = false;
+
+  group.add(mesh, edges, exhaust, shield, phaseField, reflector);
+  return { group, exhaust, shield, phaseField, reflector, nameplate };
+}
+
+function createShipNameplate(): THREE.Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 96;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = "ship-nameplate";
+  sprite.renderOrder = 100;
+  sprite.scale.set(72, 13.5, 1);
+  sprite.visible = false;
+  sprite.userData.canvas = canvas;
+  sprite.userData.label = "";
+  return sprite;
+}
+
+function setShipNameplateText(nameplate: THREE.Sprite, rawName: string): void {
+  const label = rawName.trim().slice(0, 28) || "UNKNOWN PILOT";
+  if (nameplate.userData.label === label) return;
+  nameplate.userData.label = label;
+  const canvas = nameplate.userData.canvas as HTMLCanvasElement;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(3, 10, 18, 0.76)";
+  context.strokeStyle = "rgba(105, 221, 255, 0.55)";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.roundRect(8, 10, canvas.width - 16, canvas.height - 20, 12);
+  context.fill();
+  context.stroke();
+  let fontSize = 31;
+  context.font = `600 ${fontSize}px SFMono-Regular, Consolas, monospace`;
+  while (fontSize > 20 && context.measureText(label).width > canvas.width - 52) {
+    fontSize -= 1;
+    context.font = `600 ${fontSize}px SFMono-Regular, Consolas, monospace`;
+  }
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = "#dff8ff";
+  context.shadowColor = "rgba(105, 221, 255, 0.8)";
+  context.shadowBlur = 10;
+  context.fillText(label, canvas.width / 2, canvas.height / 2 + 1);
+  const material = nameplate.material as THREE.SpriteMaterial;
+  material.map!.needsUpdate = true;
+}
+
+function disposeShipNameplate(nameplate: THREE.Sprite): void {
+  const material = nameplate.material as THREE.SpriteMaterial;
+  material.map?.dispose();
+  material.dispose();
+}
+
+function updateShipNameplate(visual: ShipVisual, name: string, position: Vec2): void {
+  setShipNameplateText(visual.nameplate, name);
+  visual.nameplate.position.set(position.x, position.y + 34, 4);
+  visual.nameplate.visible = showPlayerNames && visual.group.visible;
 }
 
 function createThrusterVisual(exhaustColor: number): THREE.Group {

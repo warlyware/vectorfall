@@ -160,10 +160,14 @@ function matchmake(fromId: string): void {
     room: generateRoomCode(),
     settings: {
       map: "classic",
-      powerups: ["shield", "triple", "missile", "laser"],
+      powerups: [
+        "shield", "triple", "missile", "laser",
+        "phase", "afterburner", "gravity", "reflector", "fuel", "overcharge",
+      ],
       wormholes: true,
       gameMode: "endless",
       scoreToWin: 5,
+      matchDurationSeconds: 180,
     },
     public: true,
     joinInProgress: true,
@@ -230,10 +234,15 @@ function readSettings(value: unknown): ServerGameSettings | null {
     map: value.map,
     powerups: value.powerups.filter(isPowerupType),
     wormholes: value.wormholes !== false,
-    gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+    gameMode: value.gameMode === "top-score"
+      ? "top-score"
+      : value.gameMode === "timed" ? "timed" : "endless",
     scoreToWin: Number.isInteger(value.scoreToWin)
       ? Math.max(1, Math.min(100, value.scoreToWin as number))
       : 5,
+    matchDurationSeconds: Number.isFinite(value.matchDurationSeconds)
+      ? Math.max(30, Math.min(3600, Math.round(value.matchDurationSeconds as number)))
+      : 180,
   };
 }
 
@@ -272,5 +281,7 @@ function isArenaMapId(value: unknown): value is ServerGameSettings["map"] {
 }
 
 function isPowerupType(value: unknown): value is ServerGameSettings["powerups"][number] {
-  return value === "shield" || value === "triple" || value === "missile" || value === "laser";
+  return value === "shield" || value === "triple" || value === "missile" || value === "laser" ||
+    value === "phase" || value === "afterburner" || value === "gravity" || value === "reflector" ||
+    value === "fuel" || value === "overcharge";
 }

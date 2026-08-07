@@ -11,21 +11,34 @@ import {
   stepShip,
   type BulletState,
   type FlightInput,
+  type FlightConfig,
   type Rect,
   type ShipState,
   type Vec2,
 } from "./simulation";
 
 export type ArenaMapId = "classic" | "crossroads" | "open";
-export type PowerupType = "shield" | "triple" | "missile" | "laser";
+export type PowerupType =
+  | "shield"
+  | "triple"
+  | "missile"
+  | "laser"
+  | "phase"
+  | "afterburner"
+  | "gravity"
+  | "reflector"
+  | "fuel"
+  | "overcharge";
 export type WeaponType = "standard" | "missile" | "laser";
+export type GameMode = "endless" | "top-score" | "timed";
 
 export interface ServerGameSettings {
   map: ArenaMapId;
   powerups: PowerupType[];
   wormholes: boolean;
-  gameMode: "endless" | "top-score";
+  gameMode: GameMode;
   scoreToWin: number;
+  matchDurationSeconds: number;
 }
 
 export interface ServerInputMessage {
@@ -45,11 +58,15 @@ interface ServerPlayer {
   tripleTimer: number;
   missileTimer: number;
   laserTimer: number;
+  phaseTimer: number;
+  afterburnerTimer: number;
+  reflectorTimer: number;
   weaponCooldown: number;
   respawnTimer: number;
   wormholeCooldown: number;
   transit: { destination: Vec2; remaining: number } | null;
   score: number;
+  spectator: boolean;
 }
 
 interface ServerBullet {
@@ -64,6 +81,13 @@ interface ServerPowerup {
   position: Vec2;
 }
 
+interface ServerGravityMine {
+  id: number;
+  owner: string;
+  position: Vec2;
+  timer: number;
+}
+
 interface ServerWormhole {
   id: number;
   color: number;
@@ -76,19 +100,29 @@ export interface ServerSnapshot {
   k: "s";
   sv: 1;
   tick: number;
-  settings: [ArenaMapId, number, number, number, number];
+  settings: [ArenaMapId, number, number, number, number, number];
   round: [number, number];
   ships: Array<[
     string, number, number, number, number, number, number, number,
     number, number, number, number, number, number, number, number,
+    number, number, number, number,
   ]>;
   bullets: Array<[number, string, WeaponType, number, number, number, number, number]>;
   powerups: Array<[number, PowerupType, number, number]>;
+  mines: Array<[number, string, number, number, number]>;
   wormholes: Array<[number, number, number, number, number, number, number]>;
   events: unknown[];
 }
 
 const config = DEFAULT_FLIGHT_CONFIG;
+const afterburnerFlightConfig: FlightConfig = {
+  ...config,
+  thrust: config.thrust * 1.55,
+  reverseThrust: config.reverseThrust * 1.3,
+  maxSpeed: config.maxSpeed * 1.35,
+  boostEnergyPerSecond: config.boostEnergyPerSecond * 0.7,
+  energyRechargePerSecond: config.energyRechargePerSecond * 1.8,
+};
 const worldWidth = 1600;
 const worldHeight = 1100;
 const fixedStep = 1 / 120;
@@ -96,6 +130,14 @@ const shieldCapacity = 100;
 const tripleDuration = 18;
 const missileDuration = 7;
 const laserDuration = 12;
+const phaseDuration = 5;
+const afterburnerDuration = 10;
+const reflectorDuration = 8;
+const gravityMineFuse = 3.2;
+const gravityMinePullRadius = 190;
+const gravityMineBlastRadius = 115;
+const gravityMinePullAcceleration = 285;
+const gravityMineDamage = 55;
 const powerupRadius = 18;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -147,16 +189,21 @@ export const serverArenaMaps: Record<ArenaMapId, Rect[]> = {
 
 const defaultSettings: ServerGameSettings = {
   map: "classic",
-  powerups: ["shield", "triple", "missile", "laser"],
+  powerups: [
+    "shield", "triple", "missile", "laser", "phase",
+    "afterburner", "gravity", "reflector", "fuel", "overcharge",
+  ],
   wormholes: true,
   gameMode: "endless",
   scoreToWin: 5,
+  matchDurationSeconds: 180,
 };
 
 export class ServerWorld {
   readonly players = new Map<string, ServerPlayer>();
   readonly bullets: ServerBullet[] = [];
   readonly powerups = new Map<number, ServerPowerup>();
+  readonly mines = new Map<number, ServerGravityMine>();
   readonly wormholes = new Map<number, ServerWormhole>();
   settings: ServerGameSettings = { ...defaultSettings, powerups: [...defaultSettings.powerups] };
   configured = false;
@@ -164,13 +211,14 @@ export class ServerWorld {
   private accumulator = 0;
   private bulletCounter = 0;
   private powerupCounter = 0;
+  private mineCounter = 0;
   private wormholeCounter = 0;
   private powerupSpawnTimer = randomDelay(powerupSpawnMinimum, powerupSpawnMaximum);
   private wormholeSpawnTimer = randomDelay(wormholeSpawnMinimum, wormholeSpawnMaximum);
   private events: unknown[] = [];
   private now = 0;
   private roundEnded = false;
-  private roundPhase: "countdown" | "playing" | "intermission" = "playing";
+  private roundPhase: "countdown" | "playing" | "sudden-death" | "intermission" = "playing";
   private roundTimer = 0;
 
   startMatchCountdown(): void {
@@ -190,12 +238,18 @@ export class ServerWorld {
       map: value.map,
       powerups: [...new Set(value.powerups.filter(isPowerupType))],
       wormholes: value.wormholes !== false,
-      gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+      gameMode: isGameMode(value.gameMode) ? value.gameMode : "endless",
       scoreToWin: clamp(Number.isInteger(value.scoreToWin) ? value.scoreToWin as number : 5, 1, 100),
+      matchDurationSeconds: clamp(
+        Number.isFinite(value.matchDurationSeconds) ? Math.round(value.matchDurationSeconds as number) : 180,
+        30,
+        3600,
+      ),
     };
     this.configured = true;
     this.bullets.length = 0;
     this.powerups.clear();
+    this.mines.clear();
     this.wormholes.clear();
     for (const player of this.players.values()) this.respawn(player);
     return true;
@@ -219,11 +273,16 @@ export class ServerWorld {
       tripleTimer: 0,
       missileTimer: 0,
       laserTimer: 0,
+      phaseTimer: 0,
+      afterburnerTimer: 0,
+      reflectorTimer: 0,
       weaponCooldown: 0,
       respawnTimer: 0,
       wormholeCooldown: 0,
       transit: null,
       score: 0,
+      spectator: this.roundPhase === "sudden-death" || this.roundPhase === "intermission" ||
+        [...this.players.values()].some((player) => player.spectator),
     });
     this.events.push(["spawn", id, round(state.position.x), round(state.position.y)]);
     return true;
@@ -234,11 +293,15 @@ export class ServerWorld {
     for (let index = this.bullets.length - 1; index >= 0; index -= 1) {
       if (this.bullets[index].state.owner === id) this.bullets.splice(index, 1);
     }
+    for (const [mineId, mine] of this.mines) {
+      if (mine.owner === id) this.mines.delete(mineId);
+    }
+    if (this.roundPhase === "sudden-death") this.resolveSuddenDeathAfterDeparture();
   }
 
   setInput(id: string, message: ServerInputMessage, now = Date.now()): void {
     const player = this.players.get(id);
-    if (!player || !Number.isInteger(message.q) || message.q <= player.lastSequence) return;
+    if (!player || player.spectator || !Number.isInteger(message.q) || message.q <= player.lastSequence) return;
     if (!Number.isInteger(message.m) || message.m < 0 || message.m > 31) return;
     player.lastSequence = message.q;
     player.lastInputAt = now;
@@ -267,7 +330,7 @@ export class ServerWorld {
 
   takeSnapshot(): ServerSnapshot {
     const powerupMask = this.settings.powerups.reduce(
-      (mask, type) => mask | (1 << ["shield", "triple", "missile", "laser"].indexOf(type)),
+      (mask, type) => mask | (1 << powerupTypes.indexOf(type)),
       0,
     );
     const snapshot: ServerSnapshot = {
@@ -278,11 +341,14 @@ export class ServerWorld {
         this.settings.map,
         powerupMask,
         Number(this.settings.wormholes),
-        Number(this.settings.gameMode === "top-score"),
+        this.settings.gameMode === "top-score" ? 1 : this.settings.gameMode === "timed" ? 2 : 0,
         this.settings.scoreToWin,
+        this.settings.matchDurationSeconds,
       ],
       round: [
-        this.roundPhase === "playing" ? 0 : this.roundPhase === "countdown" ? 1 : 2,
+        this.roundPhase === "playing"
+          ? 0
+          : this.roundPhase === "countdown" ? 1 : this.roundPhase === "intermission" ? 2 : 3,
         round(this.roundTimer),
       ],
       ships: [...this.players.values()].map((player) => [
@@ -291,8 +357,9 @@ export class ServerWorld {
         round(player.state.velocity.x), round(player.state.velocity.y),
         round(player.state.angle), round(player.state.energy), round(player.shield),
         round(player.tripleTimer), round(player.missileTimer), round(player.laserTimer),
+        round(player.phaseTimer), round(player.afterburnerTimer), round(player.reflectorTimer),
         round(player.respawnTimer), round(player.transit?.remaining ?? 0),
-        player.lastSequence, inputMask(player.input), player.score,
+        player.lastSequence, inputMask(player.input), player.score, Number(player.spectator),
       ]),
       bullets: this.bullets.map((bullet) => [
         bullet.id, bullet.state.owner, bullet.weapon,
@@ -302,6 +369,9 @@ export class ServerWorld {
       ]),
       powerups: [...this.powerups.values()].map((powerup) => [
         powerup.id, powerup.type, round(powerup.position.x), round(powerup.position.y),
+      ]),
+      mines: [...this.mines.values()].map((mine) => [
+        mine.id, mine.owner, round(mine.position.x), round(mine.position.y), round(mine.timer),
       ]),
       wormholes: [...this.wormholes.values()].map((pair) => [
         pair.id, pair.color,
@@ -316,7 +386,7 @@ export class ServerWorld {
 
   private stepFixed(): void {
     this.roundEnded = false;
-    if (this.roundPhase !== "playing") {
+    if (this.roundPhase === "countdown" || this.roundPhase === "intermission") {
       this.roundTimer = Math.max(0, this.roundTimer - fixedStep);
       if (this.roundPhase === "intermission" && this.roundTimer <= 3) {
         this.roundPhase = "countdown";
@@ -329,13 +399,22 @@ export class ServerWorld {
       }
       return;
     }
+    if (this.roundPhase === "playing" && this.settings.gameMode === "timed") {
+      this.roundTimer = Math.max(0, this.roundTimer - fixedStep);
+      if (this.roundTimer === 0) {
+        this.finishTimedRegulation();
+        return;
+      }
+    }
     for (const player of this.players.values()) this.stepPlayer(player);
     this.stepBullets();
     this.stepPowerups();
+    this.stepGravityMines();
     this.stepWormholes();
   }
 
   private stepPlayer(player: ServerPlayer): void {
+    if (player.spectator) return;
     if (this.now - player.lastInputAt > 700) {
       player.input = emptyInput();
       player.firing = false;
@@ -356,14 +435,19 @@ export class ServerWorld {
       return;
     }
 
-    stepShip(player.state, player.input, config, fixedStep);
-    for (const wall of serverArenaMaps[this.settings.map]) {
+    const flightConfig = player.afterburnerTimer > 0 ? afterburnerFlightConfig : config;
+    stepShip(player.state, player.input, flightConfig, fixedStep);
+    for (const [wallIndex, wall] of serverArenaMaps[this.settings.map].entries()) {
+      if (player.phaseTimer > 0 && wallIndex >= arenaBoundary.length) continue;
       resolveCircleAgainstRect(player.state, wall, config.shipRadius, config.wallRestitution);
     }
     player.weaponCooldown = Math.max(0, player.weaponCooldown - fixedStep);
     player.tripleTimer = Math.max(0, player.tripleTimer - fixedStep);
     player.missileTimer = Math.max(0, player.missileTimer - fixedStep);
     player.laserTimer = Math.max(0, player.laserTimer - fixedStep);
+    player.phaseTimer = Math.max(0, player.phaseTimer - fixedStep);
+    player.afterburnerTimer = Math.max(0, player.afterburnerTimer - fixedStep);
+    player.reflectorTimer = Math.max(0, player.reflectorTimer - fixedStep);
     player.wormholeCooldown = Math.max(0, player.wormholeCooldown - fixedStep);
     if (player.firing && player.weaponCooldown === 0) this.fire(player);
   }
@@ -411,7 +495,11 @@ export class ServerWorld {
     };
     const end = this.traceRay(start, direction);
     const target = this.firstPlayerOnSegment(player.id, start, end);
-    if (target) this.damage(target, config.bulletDamage * 1.6, player.id);
+    if (target?.reflectorTimer && target.reflectorTimer > 0) {
+      this.events.push(["reflect", target.id]);
+    } else if (target) {
+      this.damage(target, config.bulletDamage * 1.6, player.id);
+    }
     this.events.push(["laser", player.id, round(start.x), round(start.y), round(end.x), round(end.y)]);
   }
 
@@ -425,16 +513,22 @@ export class ServerWorld {
         resolveBulletAgainstRect(bullet.state, wall, radius, config.wallRestitution);
       }
       const hit = [...this.players.values()].find((player) =>
-        player.id !== bullet.state.owner && player.respawnTimer === 0 && !player.transit &&
+        player.id !== bullet.state.owner && !player.spectator &&
+        player.respawnTimer === 0 && !player.transit &&
+        player.phaseTimer <= 0 &&
         circlesIntersect(bullet.state.position, radius, player.state.position, config.shipRadius),
       );
-      if (hit) this.damage(
-        hit,
-        bullet.weapon === "missile" ? config.bulletDamage * 1.3 : config.bulletDamage,
-        bullet.state.owner,
-      );
+      if (hit?.reflectorTimer && hit.reflectorTimer > 0) {
+        this.reflectBullet(bullet, hit);
+      } else if (hit) {
+        this.damage(
+          hit,
+          bullet.weapon === "missile" ? config.bulletDamage * 1.3 : config.bulletDamage,
+          bullet.state.owner,
+        );
+      }
       if (this.roundEnded) return;
-      if (hit || bullet.state.lifetime <= 0) this.bullets.splice(index, 1);
+      if ((hit && hit.reflectorTimer <= 0) || bullet.state.lifetime <= 0) this.bullets.splice(index, 1);
     }
   }
 
@@ -442,7 +536,11 @@ export class ServerWorld {
     let target: ServerPlayer | null = null;
     let distance = Number.POSITIVE_INFINITY;
     for (const player of this.players.values()) {
-      if (player.id === bullet.state.owner || player.respawnTimer > 0 || player.transit) continue;
+      if (
+        player.id === bullet.state.owner || player.spectator ||
+        player.respawnTimer > 0 || player.transit ||
+        player.phaseTimer > 0
+      ) continue;
       const next = distanceSquared(bullet.state.position, player.state.position);
       if (next < distance) {
         distance = next;
@@ -462,6 +560,7 @@ export class ServerWorld {
   }
 
   private damage(player: ServerPlayer, damage: number, attackerId: string): void {
+    if (player.spectator || player.phaseTimer > 0) return;
     const absorbed = Math.min(player.shield, damage);
     player.shield -= absorbed;
     player.state.energy = Math.max(0, player.state.energy - (damage - absorbed));
@@ -475,6 +574,9 @@ export class ServerWorld {
     player.tripleTimer = 0;
     player.missileTimer = 0;
     player.laserTimer = 0;
+    player.phaseTimer = 0;
+    player.afterburnerTimer = 0;
+    player.reflectorTimer = 0;
     player.score -= 1;
     const attacker = this.players.get(attackerId);
     if (attacker && attacker.id !== player.id) attacker.score += 1;
@@ -491,6 +593,70 @@ export class ServerWorld {
     ) {
       this.events.push(["win", attacker.id]);
       this.beginRoundIntermission();
+    } else if (
+      attacker && attacker.id !== player.id && !attacker.spectator &&
+      this.roundPhase === "sudden-death"
+    ) {
+      this.events.push(["win", attacker.id]);
+      this.beginRoundIntermission();
+    }
+  }
+
+  private finishTimedRegulation(): void {
+    const competitors = [...this.players.values()].filter((player) => !player.spectator);
+    if (competitors.length === 0) {
+      this.roundTimer = this.settings.matchDurationSeconds;
+      return;
+    }
+    const highScore = Math.max(...competitors.map((player) => player.score));
+    const leaders = competitors.filter((player) => player.score === highScore);
+    if (leaders.length === 1) {
+      this.events.push(["win", leaders[0].id]);
+      this.beginRoundIntermission();
+      return;
+    }
+    this.beginSuddenDeath(leaders.map((player) => player.id));
+  }
+
+  private beginSuddenDeath(contenderIds: string[]): void {
+    const contenders = new Set(contenderIds);
+    this.roundEnded = true;
+    this.roundPhase = "sudden-death";
+    this.roundTimer = 0;
+    this.bullets.length = 0;
+    this.powerups.clear();
+    this.mines.clear();
+    this.wormholes.clear();
+    for (const player of this.players.values()) {
+      player.input = emptyInput();
+      player.firing = false;
+      player.transit = null;
+      player.spectator = !contenders.has(player.id);
+      if (!player.spectator) {
+        player.respawnTimer = 0;
+        this.respawn(player);
+      }
+    }
+    this.events.push(["sudden-death", ...contenderIds]);
+  }
+
+  private resolveSuddenDeathAfterDeparture(): void {
+    const contenders = [...this.players.values()].filter((player) => !player.spectator);
+    if (contenders.length === 1) {
+      this.events.push(["win", contenders[0].id]);
+      this.beginRoundIntermission();
+      return;
+    }
+    if (contenders.length > 1 || this.players.size === 0) return;
+    const remaining = [...this.players.values()];
+    const highScore = Math.max(...remaining.map((player) => player.score));
+    const leaders = remaining.filter((player) => player.score === highScore);
+    if (leaders.length === 1) {
+      leaders[0].spectator = false;
+      this.events.push(["win", leaders[0].id]);
+      this.beginRoundIntermission();
+    } else {
+      this.beginSuddenDeath(leaders.map((player) => player.id));
     }
   }
 
@@ -499,6 +665,7 @@ export class ServerWorld {
     this.roundPhase = "intermission";
     this.roundTimer = roundIntermissionDuration;
     this.bullets.length = 0;
+    this.mines.clear();
     for (const player of this.players.values()) {
       player.input = emptyInput();
       player.firing = false;
@@ -509,6 +676,7 @@ export class ServerWorld {
     this.roundEnded = true;
     this.bullets.length = 0;
     this.powerups.clear();
+    this.mines.clear();
     this.wormholes.clear();
     for (const player of this.players.values()) {
       player.score = 0;
@@ -516,10 +684,17 @@ export class ServerWorld {
       player.tripleTimer = 0;
       player.missileTimer = 0;
       player.laserTimer = 0;
+      player.phaseTimer = 0;
+      player.afterburnerTimer = 0;
+      player.reflectorTimer = 0;
       player.respawnTimer = 0;
       player.transit = null;
+      player.spectator = false;
       this.respawn(player);
     }
+    this.roundTimer = this.settings.gameMode === "timed"
+      ? this.settings.matchDurationSeconds
+      : 0;
   }
 
   private respawn(player: ServerPlayer): void {
@@ -527,6 +702,13 @@ export class ServerWorld {
     player.state = createShip(config);
     player.state.position = spawn.position;
     player.state.angle = spawn.angle;
+    player.shield = 0;
+    player.tripleTimer = 0;
+    player.missileTimer = 0;
+    player.laserTimer = 0;
+    player.phaseTimer = 0;
+    player.afterburnerTimer = 0;
+    player.reflectorTimer = 0;
     player.weaponCooldown = 0;
     player.wormholeCooldown = 0;
     this.events.push(["spawn", player.id, round(spawn.position.x), round(spawn.position.y)]);
@@ -541,7 +723,7 @@ export class ServerWorld {
       }
     }
     for (const player of this.players.values()) {
-      if (player.respawnTimer > 0 || player.transit) continue;
+      if (player.spectator || player.respawnTimer > 0 || player.transit) continue;
       for (const powerup of this.powerups.values()) {
         if (!circlesIntersect(player.state.position, config.shipRadius, powerup.position, powerupRadius)) continue;
         this.applyPowerup(player, powerup.type);
@@ -571,6 +753,88 @@ export class ServerWorld {
       player.laserTimer = laserDuration;
       player.missileTimer = 0;
     }
+    if (type === "phase") player.phaseTimer = phaseDuration;
+    if (type === "afterburner") player.afterburnerTimer = afterburnerDuration;
+    if (type === "reflector") player.reflectorTimer = reflectorDuration;
+    if (type === "gravity") this.deployGravityMine(player);
+    if (type === "fuel") player.state.energy = config.maxEnergy;
+    if (type === "overcharge") player.state.energy = config.maxEnergy * 2;
+  }
+
+  private deployGravityMine(player: ServerPlayer): void {
+    this.mineCounter += 1;
+    this.mines.set(this.mineCounter, {
+      id: this.mineCounter,
+      owner: player.id,
+      position: { ...player.state.position },
+      timer: gravityMineFuse,
+    });
+    this.events.push([
+      "mine-deploy",
+      player.id,
+      this.mineCounter,
+      round(player.state.position.x),
+      round(player.state.position.y),
+    ]);
+  }
+
+  private stepGravityMines(): void {
+    for (const [id, mine] of this.mines) {
+      mine.timer = Math.max(0, mine.timer - fixedStep);
+      for (const player of this.players.values()) {
+        if (
+          player.id === mine.owner || player.spectator ||
+          player.respawnTimer > 0 || player.transit ||
+          player.phaseTimer > 0
+        ) continue;
+        const offsetX = mine.position.x - player.state.position.x;
+        const offsetY = mine.position.y - player.state.position.y;
+        const distance = Math.hypot(offsetX, offsetY);
+        if (distance <= 0 || distance >= gravityMinePullRadius) continue;
+        const acceleration = gravityMinePullAcceleration * (1 - distance / gravityMinePullRadius);
+        player.state.velocity.x += (offsetX / distance) * acceleration * fixedStep;
+        player.state.velocity.y += (offsetY / distance) * acceleration * fixedStep;
+      }
+      if (mine.timer > 0) continue;
+      this.events.push(["mine-explode", mine.owner, round(mine.position.x), round(mine.position.y)]);
+      for (const player of this.players.values()) {
+        if (
+          player.id === mine.owner || player.spectator ||
+          player.respawnTimer > 0 || player.transit ||
+          player.phaseTimer > 0
+        ) continue;
+        const distance = Math.sqrt(distanceSquared(mine.position, player.state.position));
+        if (distance >= gravityMineBlastRadius) continue;
+        this.damage(
+          player,
+          gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
+          mine.owner,
+        );
+        if (this.roundEnded) break;
+      }
+      this.mines.delete(id);
+      if (this.roundEnded) return;
+    }
+  }
+
+  private reflectBullet(bullet: ServerBullet, player: ServerPlayer): void {
+    const speed = Math.max(1, Math.hypot(bullet.state.velocity.x, bullet.state.velocity.y));
+    let offsetX = bullet.state.position.x - player.state.position.x;
+    let offsetY = bullet.state.position.y - player.state.position.y;
+    const offsetLength = Math.hypot(offsetX, offsetY);
+    if (offsetLength < 0.01) {
+      offsetX = -bullet.state.velocity.x / speed;
+      offsetY = -bullet.state.velocity.y / speed;
+    } else {
+      offsetX /= offsetLength;
+      offsetY /= offsetLength;
+    }
+    bullet.state.position.x = player.state.position.x + offsetX * (config.shipRadius + 6);
+    bullet.state.position.y = player.state.position.y + offsetY * (config.shipRadius + 6);
+    bullet.state.velocity.x = offsetX * speed;
+    bullet.state.velocity.y = offsetY * speed;
+    bullet.state.owner = player.id;
+    this.events.push(["reflect", player.id]);
   }
 
   private stepWormholes(): void {
@@ -585,7 +849,10 @@ export class ServerWorld {
       if (pair.age >= wormholeLifetime) this.wormholes.delete(id);
     }
     for (const player of this.players.values()) {
-      if (player.respawnTimer > 0 || player.transit || player.wormholeCooldown > 0) continue;
+      if (
+        player.spectator || player.respawnTimer > 0 || player.transit ||
+        player.wormholeCooldown > 0
+      ) continue;
       for (const pair of this.wormholes.values()) {
         if (pair.age < wormholeFadeIn || pair.age > wormholeLifetime - wormholeFadeOut) continue;
         const collisionDistance = (wormholeRadius + config.shipRadius) ** 2;
@@ -648,7 +915,10 @@ export class ServerWorld {
     let closest: ServerPlayer | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
     for (const player of this.players.values()) {
-      if (player.id === owner || player.respawnTimer > 0 || player.transit) continue;
+      if (
+        player.id === owner || player.spectator || player.respawnTimer > 0 ||
+        player.transit || player.phaseTimer > 0
+      ) continue;
       const distance = segmentCircleHitDistance(start, end, player.state.position, config.shipRadius);
       if (distance !== null && distance < closestDistance) {
         closest = player;
@@ -675,10 +945,15 @@ export class ServerWorld {
       };
       if (serverArenaMaps[this.settings.map].some((wall) => circleIntersectsRect(position, radius, wall))) continue;
       if ([...this.players.values()].some((player) =>
-        player.respawnTimer === 0 && distanceSquared(position, player.state.position) < separation ** 2,
+        !player.spectator && player.respawnTimer === 0 &&
+        distanceSquared(position, player.state.position) < separation ** 2,
       )) continue;
       if ([...this.powerups.values()].some((powerup) =>
         distanceSquared(position, powerup.position) < separation ** 2,
+      )) continue;
+      if ([...this.mines.values()].some((mine) =>
+        distanceSquared(position, mine.position) <
+          Math.max(separation, gravityMineBlastRadius + radius) ** 2,
       )) continue;
       return position;
     }
@@ -706,9 +981,18 @@ function isArenaMapId(value: unknown): value is ArenaMapId {
   return value === "classic" || value === "crossroads" || value === "open";
 }
 
-function isPowerupType(value: unknown): value is PowerupType {
-  return value === "shield" || value === "triple" || value === "missile" || value === "laser";
+function isGameMode(value: unknown): value is GameMode {
+  return value === "endless" || value === "top-score" || value === "timed";
 }
+
+function isPowerupType(value: unknown): value is PowerupType {
+  return powerupTypes.includes(value as PowerupType);
+}
+
+const powerupTypes: PowerupType[] = [
+  "shield", "triple", "missile", "laser", "phase", "afterburner", "gravity", "reflector",
+  "fuel", "overcharge",
+];
 
 function randomDelay(minimum: number, maximum: number): number {
   return minimum + Math.random() * (maximum - minimum);

@@ -46,6 +46,23 @@ describe("flight simulation", () => {
     expect(ship.energy).toBe(89);
   });
 
+  it("retains overcharged energy until it is spent without regenerating above 100", () => {
+    const ship = createShip();
+    const boosting = { ...idleInput, thrust: true, boost: true };
+    ship.energy = 200;
+
+    stepShip(ship, idleInput, DEFAULT_FLIGHT_CONFIG, 1);
+    expect(ship.energy).toBe(200);
+    stepShip(ship, boosting, DEFAULT_FLIGHT_CONFIG, 1);
+    expect(ship.energy).toBe(172);
+    stepShip(ship, idleInput, DEFAULT_FLIGHT_CONFIG, 1);
+    expect(ship.energy).toBe(172);
+
+    ship.energy = 90;
+    stepShip(ship, idleInput, DEFAULT_FLIGHT_CONFIG, 1);
+    expect(ship.energy).toBe(100);
+  });
+
   it("caps normal and boosted speed", () => {
     const ship = createShip();
     ship.velocity.x = 1000;

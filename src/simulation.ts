@@ -225,7 +225,7 @@ export function stepShip(
 
   if (canBoost) {
     ship.energy = Math.max(0, ship.energy - config.boostEnergyPerSecond * deltaSeconds);
-  } else {
+  } else if (ship.energy < config.maxEnergy) {
     ship.energy = Math.min(
       config.maxEnergy,
       ship.energy + config.energyRechargePerSecond * deltaSeconds,

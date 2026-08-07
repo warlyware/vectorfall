@@ -64,11 +64,17 @@ canvas {
   height: 100%;
   background: #69ddff;
   box-shadow: 0 0 10px rgb(105 221 255 / 45%);
-  transition: background 120ms ease;
+  transition: background 120ms ease, box-shadow 120ms ease;
 }
 
 #energy-fill.low {
   background: #ff5577;
+}
+
+#energy-fill.overcharged,
+#enemy-energy-fill.overcharged {
+  background: linear-gradient(90deg, #39c9ff, #55ffd1);
+  box-shadow: 0 0 13px rgb(76 255 211 / 72%);
 }
 
 .enemy-hud {
@@ -79,6 +85,87 @@ canvas {
   font-size: 10px;
   letter-spacing: 0.1em;
   transform: translateX(-50%);
+}
+
+.enemy-hud.timed-match {
+  top: 76px;
+}
+
+.match-timer {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 4;
+  display: grid;
+  min-width: 180px;
+  justify-items: center;
+  padding: 7px 14px;
+  border: 1px solid rgb(105 221 255 / 42%);
+  background: rgb(5 10 22 / 80%);
+  color: #8fa9bd;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  transform: translateX(-50%);
+  backdrop-filter: blur(4px);
+}
+
+.match-timer strong {
+  margin-top: 2px;
+  color: #e9f9ff;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 12px rgb(105 221 255 / 52%);
+}
+
+.spectator-hud {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  z-index: 4;
+  display: grid;
+  min-width: min(330px, calc(100vw - 36px));
+  justify-items: center;
+  gap: 5px;
+  padding: 12px 18px;
+  border: 1px solid rgb(199 125 255 / 54%);
+  background: rgb(8 8 22 / 84%);
+  color: #bba4c9;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  transform: translateX(-50%);
+  backdrop-filter: blur(5px);
+}
+
+.spectator-hud strong {
+  color: #f0e6ff;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+
+.spectator-hud div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spectator-hud button {
+  width: 28px;
+  height: 24px;
+  border: 1px solid #7d5b9b;
+  background: rgb(65 31 88 / 62%);
+  color: #f0e6ff;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.spectator-hud button:disabled {
+  opacity: 0.35;
+}
+
+.spectator-hud small {
+  color: #806f8d;
+  font-size: 8px;
 }
 
 .enemy-energy-label {
@@ -101,7 +188,7 @@ canvas {
   height: 100%;
   background: #ff6f88;
   box-shadow: 0 0 10px rgb(255 111 136 / 45%);
-  transition: background 120ms ease;
+  transition: background 120ms ease, box-shadow 120ms ease;
 }
 
 #enemy-energy-fill.low {
@@ -381,6 +468,65 @@ dd {
   box-shadow: 0 0 8px rgb(66 255 226 / 75%);
 }
 
+.phase-card {
+  --card-accent: #c7b0ff;
+  --card-track: #9a78ff;
+  border-color: rgb(173 138 255 / 52%);
+  background: linear-gradient(135deg, rgb(25 16 45 / 92%), rgb(11 8 22 / 78%));
+}
+
+.afterburner-card {
+  --card-accent: #ffb36b;
+  --card-track: #ff704d;
+  border-color: rgb(255 132 82 / 52%);
+  background: linear-gradient(135deg, rgb(42 19 8 / 92%), rgb(19 8 5 / 78%));
+}
+
+.gravity-card {
+  --card-accent: #dca8ff;
+  --card-track: #8c5cff;
+  border-color: rgb(176 105 255 / 52%);
+  background: linear-gradient(135deg, rgb(30 13 43 / 92%), rgb(12 6 20 / 78%));
+}
+
+.reflector-card {
+  --card-accent: #8ffff3;
+  --card-track: #39bfff;
+  border-color: rgb(71 215 255 / 52%);
+  background: linear-gradient(135deg, rgb(7 28 36 / 92%), rgb(4 12 20 / 78%));
+}
+
+.phase-card .powerup-card-icon,
+.phase-card strong,
+.phase-card output,
+.afterburner-card .powerup-card-icon,
+.afterburner-card strong,
+.afterburner-card output,
+.gravity-card .powerup-card-icon,
+.gravity-card strong,
+.gravity-card output,
+.reflector-card .powerup-card-icon,
+.reflector-card strong,
+.reflector-card output {
+  color: var(--card-accent);
+  text-shadow: 0 0 10px var(--card-accent);
+}
+
+.phase-card .powerup-card-track,
+.afterburner-card .powerup-card-track,
+.gravity-card .powerup-card-track,
+.reflector-card .powerup-card-track {
+  background: rgb(12 19 29 / 86%);
+}
+
+.phase-card .powerup-card-track > div,
+.afterburner-card .powerup-card-track > div,
+.gravity-card .powerup-card-track > div,
+.reflector-card .powerup-card-track > div {
+  background: var(--card-track);
+  box-shadow: 0 0 8px var(--card-track);
+}
+
 .powerup-card.expiring {
   animation: powerup-warning 500ms ease-in-out infinite alternate;
 }
@@ -557,7 +703,7 @@ kbd {
   position: fixed;
   right: 24px;
   bottom: 22px;
-  z-index: 4;
+  z-index: 6;
   width: 40px;
   height: 40px;
   border: 1px solid rgb(105 221 255 / 70%);
@@ -587,6 +733,44 @@ kbd {
 
 .settings-card {
   width: min(410px, 100%);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 20px;
+  padding: 12px 13px;
+  border: 1px solid rgb(49 79 100 / 66%);
+  background: rgb(8 16 25 / 62%);
+  cursor: pointer;
+}
+
+.settings-toggle > span {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+
+.settings-toggle strong {
+  color: #bcecff;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+
+.settings-toggle small {
+  color: #71899d;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.settings-toggle input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  accent-color: #69ddff;
 }
 
 .settings-match-info {
@@ -641,8 +825,8 @@ kbd {
 
 .leaderboard {
   position: fixed;
-  right: 24px;
-  bottom: 76px;
+  top: 24px;
+  left: 24px;
   z-index: 3;
   width: 235px;
   padding: 10px 11px;
@@ -701,6 +885,13 @@ kbd {
 .leaderboard li.local-player,
 .leaderboard-all li.local-player {
   color: #69ddff;
+}
+
+.leaderboard li.spectated-player,
+.leaderboard-all li.spectated-player {
+  color: #f0d9ff;
+  background: rgb(151 75 203 / 18%);
+  box-shadow: inset 2px 0 #c77dff;
 }
 
 .leaderboard-card {
@@ -1039,6 +1230,15 @@ kbd {
 
 .arcade-brand h1 span:last-child {
   -webkit-text-stroke-color: #ffb2eb;
+}
+
+.arcade-version {
+  display: block;
+  margin-top: 18px;
+  color: #a5c9db;
+  font-size: clamp(9px, 0.75vw, 11px);
+  letter-spacing: 0.24em;
+  text-shadow: 0 0 9px rgb(105 221 255 / 48%);
 }
 
 .arcade-subtitle {
@@ -1479,6 +1679,10 @@ kbd {
     width: min(300px, calc(100vw - 56px));
     transform: none;
   }
+
+  .enemy-hud.timed-match {
+    top: 106px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1512,6 +1716,24 @@ kbd {
     width: calc(50vw - 27px);
     min-width: 0;
     transform: none;
+  }
+
+  .enemy-hud.timed-match {
+    top: 55px;
+  }
+
+  .match-timer {
+    top: 160px;
+    min-width: 150px;
+  }
+
+  .powerup-tray.timed-match {
+    top: 214px;
+    max-height: calc(100vh - 264px);
+  }
+
+  .spectator-hud {
+    bottom: 82px;
   }
 
   .diagnostics {
@@ -1572,9 +1794,9 @@ kbd {
   }
 
   .leaderboard {
-    right: 18px;
-    bottom: 72px;
-    width: min(235px, calc(100vw - 36px));
+    top: 18px;
+    left: 18px;
+    width: calc(50vw - 27px);
   }
 
   .controls-modal {

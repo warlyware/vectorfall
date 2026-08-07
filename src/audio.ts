@@ -1,4 +1,14 @@
-export type PowerupSound = "shield" | "triple" | "missile" | "laser";
+export type PowerupSound =
+  | "shield"
+  | "triple"
+  | "missile"
+  | "laser"
+  | "phase"
+  | "afterburner"
+  | "gravity"
+  | "reflector"
+  | "fuel"
+  | "overcharge";
 
 export class ArcadeAudio {
   private context: AudioContext | null = null;
@@ -65,14 +75,30 @@ export class ArcadeAudio {
     this.tone(70, 42, 0.3, "square", 0.1 * volume, 0.035);
   }
 
+  reflect(volume = 1): void {
+    this.tone(720, 1760, 0.11, "triangle", 0.13 * volume);
+    this.tone(1420, 540, 0.09, "square", 0.07 * volume, 0.025);
+  }
+
+  mineExplosion(volume = 1): void {
+    this.tone(260, 42, 0.48, "sawtooth", 0.2 * volume);
+    this.noise(0.35, 0.22 * volume, 65, 950, 0.04);
+  }
+
   powerup(type: PowerupSound, volume = 1): void {
-    const notes = type === "shield"
-      ? [440, 660, 880, 1320]
-      : type === "triple"
-        ? [330, 495, 740, 990]
-        : type === "missile"
-          ? [220, 330, 550, 880]
-          : [620, 930, 1395, 1860];
+    const noteSets: Record<PowerupSound, number[]> = {
+      shield: [440, 660, 880, 1320],
+      triple: [330, 495, 740, 990],
+      missile: [220, 330, 550, 880],
+      laser: [620, 930, 1395, 1860],
+      phase: [280, 560, 1120, 1680],
+      afterburner: [180, 360, 720, 1080],
+      gravity: [520, 390, 260, 130],
+      reflector: [480, 960, 720, 1440],
+      fuel: [260, 390, 520, 780],
+      overcharge: [420, 840, 1260, 2100],
+    };
+    const notes = noteSets[type];
     notes.forEach((frequency, index) => {
       this.tone(
         frequency,
@@ -92,8 +118,8 @@ export class ArcadeAudio {
   }
 
   wormholeExit(volume = 1): void {
-    this.tone(1380, 240, 0.2, "square", 0.11 * volume);
-    this.tone(920, 1840, 0.16, "sine", 0.1 * volume, 0.035);
+    this.whoosh(0.48, 0.16 * volume);
+    this.tone(210, 92, 0.32, "sine", 0.045 * volume, 0.035);
   }
 
   win(volume = 1): void {
@@ -153,6 +179,37 @@ export class ArcadeAudio {
     gain.gain.setValueAtTime(Math.max(0.0001, volume), start);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
     source.connect(filter).connect(gain).connect(this.master);
+    source.start(start);
+  }
+
+  private whoosh(duration: number, volume: number): void {
+    if (!this.context || !this.master) return;
+    const frameCount = Math.ceil(this.context.sampleRate * duration);
+    const buffer = this.context.createBuffer(1, frameCount, this.context.sampleRate);
+    const samples = buffer.getChannelData(0);
+    let smoothedNoise = 0;
+    for (let index = 0; index < frameCount; index += 1) {
+      smoothedNoise = smoothedNoise * 0.35 + (Math.random() * 2 - 1) * 0.65;
+      samples[index] = smoothedNoise;
+    }
+
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    const panner = this.context.createStereoPanner();
+    const start = this.context.currentTime;
+    source.buffer = buffer;
+    filter.type = "bandpass";
+    filter.Q.value = 0.55;
+    filter.frequency.setValueAtTime(320, start);
+    filter.frequency.exponentialRampToValueAtTime(2800, start + duration * 0.42);
+    filter.frequency.exponentialRampToValueAtTime(620, start + duration);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), start + duration * 0.14);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    panner.pan.setValueAtTime(-0.45, start);
+    panner.pan.linearRampToValueAtTime(0.45, start + duration);
+    source.connect(filter).connect(gain).connect(panner).connect(this.master);
     source.start(start);
   }
 }
