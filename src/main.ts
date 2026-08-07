@@ -30,7 +30,10 @@ app.innerHTML = `
   <canvas id="game" aria-label="VECTORFALL multiplayer space combat"></canvas>
   <section id="player-hud" class="hud" aria-live="polite">
     <div class="energy-label"><span>ENERGY</span><output id="energy-value">100</output></div>
-    <div class="energy-track"><div id="energy-fill"></div></div>
+    <div class="energy-track">
+      <div id="energy-fill" class="energy-fill-base"></div>
+      <div id="energy-overcharge-fill" class="energy-fill-overcharge"></div>
+    </div>
     <dl>
       <div><dt>SPEED</dt><dd id="speed">0</dd></div>
       <div><dt>POSITION</dt><dd id="position">0, 0</dd></div>
@@ -39,11 +42,14 @@ app.innerHTML = `
   </section>
   <section id="enemy-hud" class="enemy-hud hidden" aria-live="polite">
     <div class="enemy-energy-label"><span id="enemy-name">ENEMY ENERGY</span><output id="enemy-energy-value">100</output></div>
-    <div class="enemy-energy-track"><div id="enemy-energy-fill"></div></div>
+    <div class="enemy-energy-track">
+      <div id="enemy-energy-fill" class="energy-fill-base"></div>
+      <div id="enemy-energy-overcharge-fill" class="energy-fill-overcharge"></div>
+    </div>
   </section>
   <section id="session-panel" class="session-panel hidden">
-    <div><span>ROOM</span><strong id="room-name">OFFLINE</strong></div>
-    <div><span>SECTOR</span><strong id="sector-name">CLASSIC</strong></div>
+    <div class="session-room"><span>ROOM</span><strong id="room-name">OFFLINE</strong></div>
+    <div class="session-sector"><span>SECTOR</span><strong id="sector-name">CLASSIC</strong></div>
     <div><span>PILOTS</span><strong id="player-count">1</strong></div>
     <button id="leave-room" type="button">LEAVE</button>
     <div id="practice-controls" class="practice-controls hidden">
@@ -743,6 +749,7 @@ const input: FlightInput = {
 };
 
 const energyFill = getElement<HTMLElement>("energy-fill");
+const energyOverchargeFill = getElement<HTMLElement>("energy-overcharge-fill");
 const playerHud = getElement<HTMLElement>("player-hud");
 const energyValue = getElement<HTMLElement>("energy-value");
 const powerupTray = getElement<HTMLElement>("powerup-tray");
@@ -773,6 +780,7 @@ const reflectorPowerupFill = getElement<HTMLElement>("reflector-powerup-fill");
 const enemyHud = getElement<HTMLElement>("enemy-hud");
 const enemyName = getElement<HTMLElement>("enemy-name");
 const enemyEnergyFill = getElement<HTMLElement>("enemy-energy-fill");
+const enemyEnergyOverchargeFill = getElement<HTMLElement>("enemy-energy-overcharge-fill");
 const enemyEnergyValue = getElement<HTMLElement>("enemy-energy-value");
 const speedValue = getElement<HTMLElement>("speed");
 const positionValue = getElement<HTMLElement>("position");
@@ -5305,6 +5313,22 @@ function soundVolumeAt(position: Vec2): number {
   return THREE.MathUtils.clamp(1 - distance / 900, 0.08, 1);
 }
 
+function updateEnergyBar(
+  energy: number,
+  baseFill: HTMLElement,
+  overchargeFill: HTMLElement,
+): void {
+  const basePercent = THREE.MathUtils.clamp((energy / config.maxEnergy) * 100, 0, 100);
+  const overchargePercent = THREE.MathUtils.clamp(
+    ((energy - config.maxEnergy) / config.maxEnergy) * 100,
+    0,
+    100,
+  );
+  baseFill.style.width = `${basePercent}%`;
+  baseFill.classList.toggle("low", basePercent < 25);
+  overchargeFill.style.width = `${overchargePercent}%`;
+}
+
 function updateEnemyEnergyHud(): void {
   if (localSpectator) {
     enemyHud.classList.add("hidden");
@@ -5327,11 +5351,6 @@ function updateEnemyEnergyHud(): void {
   }
 
   const [id, pilot] = target;
-  const energyPercent = THREE.MathUtils.clamp(
-    (pilot.state.energy / config.maxEnergy) * 100,
-    0,
-    100,
-  );
   const displayName = multiplayerDisplayName(id);
   const label = pilot.isCpu
     ? `CPU ${id.replace("cpu-", "")}`
@@ -5340,9 +5359,7 @@ function updateEnemyEnergyHud(): void {
       : unknownEnemyName(id);
   enemyName.textContent = label;
   enemyEnergyValue.textContent = Math.round(pilot.state.energy).toString().padStart(3, "0");
-  enemyEnergyFill.style.width = `${energyPercent}%`;
-  enemyEnergyFill.classList.toggle("low", energyPercent < 25);
-  enemyEnergyFill.classList.toggle("overcharged", pilot.state.energy > config.maxEnergy);
+  updateEnergyBar(pilot.state.energy, enemyEnergyFill, enemyEnergyOverchargeFill);
   enemyHud.classList.remove("hidden");
 }
 
@@ -5455,10 +5472,7 @@ function renderWorld(frameDelta: number): void {
   updateLine(velocityLine, ship.velocity.x * 0.35, ship.velocity.y * 0.35);
   updateLine(headingLine, Math.cos(ship.angle) * 45, Math.sin(ship.angle) * 45);
 
-  const energyPercent = THREE.MathUtils.clamp((ship.energy / config.maxEnergy) * 100, 0, 100);
-  energyFill.style.width = `${energyPercent}%`;
-  energyFill.classList.toggle("low", energyPercent < 25);
-  energyFill.classList.toggle("overcharged", ship.energy > config.maxEnergy);
+  updateEnergyBar(ship.energy, energyFill, energyOverchargeFill);
   energyValue.textContent = Math.round(ship.energy).toString().padStart(3, "0");
   updateEnemyEnergyHud();
   updatePowerupTray();

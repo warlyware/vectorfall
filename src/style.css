@@ -54,26 +54,36 @@ canvas {
   color: #dcecff;
 }
 
-.energy-track {
+.energy-track,
+.enemy-energy-track {
+  position: relative;
   height: 5px;
   background: #17232e;
 }
 
-#energy-fill {
-  width: 100%;
-  height: 100%;
-  background: #69ddff;
-  box-shadow: 0 0 10px rgb(105 221 255 / 45%);
-  transition: background 120ms ease, box-shadow 120ms ease;
+.energy-fill-base,
+.energy-fill-overcharge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  transition: width 120ms linear, background 120ms ease, box-shadow 120ms ease;
 }
 
-#energy-fill.low {
+.energy-fill-base {
+  width: 100%;
+  background: #69ddff;
+  box-shadow: 0 0 10px rgb(105 221 255 / 45%);
+}
+
+.energy-fill-base.low {
   background: #ff5577;
 }
 
-#energy-fill.overcharged,
-#enemy-energy-fill.overcharged {
-  background: linear-gradient(90deg, #39c9ff, #55ffd1);
+.energy-fill-overcharge {
+  z-index: 1;
+  width: 0;
+  background: #55ffd1;
   box-shadow: 0 0 13px rgb(76 255 211 / 72%);
 }
 
@@ -179,19 +189,10 @@ canvas {
 }
 
 .enemy-energy-track {
-  height: 5px;
   background: #261821;
 }
 
-#enemy-energy-fill {
-  width: 100%;
-  height: 100%;
-  background: #ff6f88;
-  box-shadow: 0 0 10px rgb(255 111 136 / 45%);
-  transition: background 120ms ease, box-shadow 120ms ease;
-}
-
-#enemy-energy-fill.low {
+#enemy-energy-fill.energy-fill-base.low {
   background: #ff304f;
 }
 
@@ -229,6 +230,11 @@ dd {
 
 .session-panel.practice-session {
   top: 24px;
+}
+
+.session-panel.practice-session .session-room,
+.session-panel.practice-session .session-sector {
+  display: none;
 }
 
 .session-panel > div {
@@ -1780,7 +1786,7 @@ kbd {
   }
 
   .hud {
-    top: 18px;
+    top: max(18px, env(safe-area-inset-top));
     right: 18px;
     width: calc(50vw - 27px);
     min-width: 0;
@@ -1840,7 +1846,28 @@ kbd {
   }
 
   .session-panel.practice-session {
-    top: 60px;
+    top: 18px !important;
+    top: max(18px, env(safe-area-inset-top)) !important;
+    right: auto !important;
+    left: 18px !important;
+    width: calc(50vw - 27px) !important;
+    min-width: 0;
+  }
+
+  .session-panel.practice-session > div:not(.practice-controls) {
+    gap: 8px;
+  }
+
+  .session-panel.practice-session strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-panel.practice-session .practice-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .chat-panel {
