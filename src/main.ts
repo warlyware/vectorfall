@@ -138,6 +138,10 @@ app.innerHTML = `
         <div><span class="eyebrow">SYSTEM MENU</span><h2 id="settings-title">SETTINGS</h2></div>
         <button id="close-settings" class="close-controls" type="button" aria-label="Close settings">×</button>
       </div>
+      <dl class="settings-match-info" aria-label="Active match settings">
+        <div><dt>GAME MODE</dt><dd id="settings-game-mode">ENDLESS</dd></div>
+        <div><dt>MAP</dt><dd id="settings-map">CLASSIC ARENA</dd></div>
+      </dl>
       <button id="settings-leave-match" class="settings-leave-match" type="button">LEAVE MATCH</button>
     </div>
   </section>
@@ -679,6 +683,8 @@ const settingsButton = getElement<HTMLButtonElement>("settings-button");
 const settingsModal = getElement<HTMLElement>("settings-modal");
 const closeSettingsButton = getElement<HTMLButtonElement>("close-settings");
 const settingsLeaveMatchButton = getElement<HTMLButtonElement>("settings-leave-match");
+const settingsGameMode = getElement<HTMLElement>("settings-game-mode");
+const settingsMap = getElement<HTMLElement>("settings-map");
 const leaderboard = getElement<HTMLElement>("leaderboard");
 const leaderboardTopFive = getElement<HTMLOListElement>("leaderboard-top-five");
 const expandLeaderboardButton = getElement<HTMLButtonElement>("expand-leaderboard");
@@ -3669,6 +3675,7 @@ function updateWormholeVisuals(frameDelta: number): void {
       const haze = hole.getObjectByName("rift-haze");
       const core = hole.getObjectByName("rift-core");
       if (assembly) {
+        assembly.rotation.z -= frameDelta * 0.12;
         assembly.rotation.y = Math.sin(time * 0.23 + pair.phase + index) * 0.035;
       }
       if (membrane) {
@@ -4009,6 +4016,12 @@ function setSettingsModalVisible(visible: boolean): void {
   settingsModal.classList.toggle("hidden", !visible);
   settingsButton.setAttribute("aria-expanded", String(visible));
   if (visible) {
+    settingsGameMode.textContent = activeGameSettings.gameMode === "top-score"
+      ? `TOP SCORE · ${activeGameSettings.scoreToWin} POINTS`
+      : "ENDLESS";
+    settingsMap.textContent = activeGameSettings.map === "classic"
+      ? "CLASSIC ARENA"
+      : activeGameSettings.map === "crossroads" ? "CROSSROADS" : "OPEN VOID";
     heldKeys.clear();
     resetGamepadInput();
     updateInput();
