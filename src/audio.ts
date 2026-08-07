@@ -5,7 +5,6 @@ export type PowerupSound =
   | "laser"
   | "phase"
   | "afterburner"
-  | "gravity"
   | "reflector"
   | "fuel"
   | "overcharge";
@@ -80,11 +79,6 @@ export class ArcadeAudio {
     this.tone(1420, 540, 0.09, "square", 0.07 * volume, 0.025);
   }
 
-  mineExplosion(volume = 1): void {
-    this.tone(260, 42, 0.48, "sawtooth", 0.2 * volume);
-    this.noise(0.35, 0.22 * volume, 65, 950, 0.04);
-  }
-
   powerup(type: PowerupSound, volume = 1): void {
     const noteSets: Record<PowerupSound, number[]> = {
       shield: [440, 660, 880, 1320],
@@ -93,7 +87,6 @@ export class ArcadeAudio {
       laser: [620, 930, 1395, 1860],
       phase: [280, 560, 1120, 1680],
       afterburner: [180, 360, 720, 1080],
-      gravity: [520, 390, 260, 130],
       reflector: [480, 960, 720, 1440],
       fuel: [260, 390, 520, 780],
       overcharge: [420, 840, 1260, 2100],

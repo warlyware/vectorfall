@@ -25,7 +25,6 @@ export type PowerupType =
   | "laser"
   | "phase"
   | "afterburner"
-  | "gravity"
   | "reflector"
   | "fuel"
   | "overcharge";
@@ -82,13 +81,6 @@ interface ServerPowerup {
   position: Vec2;
 }
 
-interface ServerGravityMine {
-  id: number;
-  owner: string;
-  position: Vec2;
-  timer: number;
-}
-
 interface ServerWormhole {
   id: number;
   color: number;
@@ -110,7 +102,6 @@ export interface ServerSnapshot {
   ]>;
   bullets: Array<[number, string, WeaponType, number, number, number, number, number]>;
   powerups: Array<[number, PowerupType, number, number]>;
-  mines: Array<[number, string, number, number, number]>;
   wormholes: Array<[number, number, number, number, number, number, number]>;
   events: unknown[];
 }
@@ -134,11 +125,6 @@ const laserDuration = 12;
 const phaseDuration = 5;
 const afterburnerDuration = 10;
 const reflectorDuration = 8;
-const gravityMineFuse = 3.2;
-const gravityMinePullRadius = 190;
-const gravityMineBlastRadius = 115;
-const gravityMinePullAcceleration = 285;
-const gravityMineDamage = 55;
 const powerupRadius = 18;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -192,7 +178,7 @@ const defaultSettings: ServerGameSettings = {
   map: "classic",
   powerups: [
     "shield", "triple", "missile", "laser", "phase",
-    "afterburner", "gravity", "reflector", "fuel", "overcharge",
+    "afterburner", "reflector", "fuel", "overcharge",
   ],
   wormholes: true,
   gameMode: "endless",
@@ -204,7 +190,6 @@ export class ServerWorld {
   readonly players = new Map<string, ServerPlayer>();
   readonly bullets: ServerBullet[] = [];
   readonly powerups = new Map<number, ServerPowerup>();
-  readonly mines = new Map<number, ServerGravityMine>();
   readonly wormholes = new Map<number, ServerWormhole>();
   settings: ServerGameSettings = { ...defaultSettings, powerups: [...defaultSettings.powerups] };
   configured = false;
@@ -212,7 +197,6 @@ export class ServerWorld {
   private accumulator = 0;
   private bulletCounter = 0;
   private powerupCounter = 0;
-  private mineCounter = 0;
   private wormholeCounter = 0;
   private powerupSpawnTimer = randomDelay(powerupSpawnMinimum, powerupSpawnMaximum);
   private wormholeSpawnTimer = randomDelay(wormholeSpawnMinimum, wormholeSpawnMaximum);
@@ -250,7 +234,6 @@ export class ServerWorld {
     this.configured = true;
     this.bullets.length = 0;
     this.powerups.clear();
-    this.mines.clear();
     this.wormholes.clear();
     for (const player of this.players.values()) this.respawn(player);
     return true;
@@ -294,9 +277,6 @@ export class ServerWorld {
     this.players.delete(id);
     for (let index = this.bullets.length - 1; index >= 0; index -= 1) {
       if (this.bullets[index].state.owner === id) this.bullets.splice(index, 1);
-    }
-    for (const [mineId, mine] of this.mines) {
-      if (mine.owner === id) this.mines.delete(mineId);
     }
     if (this.roundPhase === "sudden-death") this.resolveSuddenDeathAfterDeparture();
   }
@@ -372,9 +352,6 @@ export class ServerWorld {
       powerups: [...this.powerups.values()].map((powerup) => [
         powerup.id, powerup.type, round(powerup.position.x), round(powerup.position.y),
       ]),
-      mines: [...this.mines.values()].map((mine) => [
-        mine.id, mine.owner, round(mine.position.x), round(mine.position.y), round(mine.timer),
-      ]),
       wormholes: [...this.wormholes.values()].map((pair) => [
         pair.id, pair.color,
         round(pair.first.x), round(pair.first.y),
@@ -411,7 +388,6 @@ export class ServerWorld {
     for (const player of this.players.values()) this.stepPlayer(player);
     this.stepBullets();
     this.stepPowerups();
-    this.stepGravityMines();
     this.stepWormholes();
   }
 
@@ -629,7 +605,6 @@ export class ServerWorld {
     this.roundTimer = 0;
     this.bullets.length = 0;
     this.powerups.clear();
-    this.mines.clear();
     this.wormholes.clear();
     for (const player of this.players.values()) {
       player.input = emptyInput();
@@ -669,7 +644,6 @@ export class ServerWorld {
     this.roundPhase = "intermission";
     this.roundTimer = roundIntermissionDuration;
     this.bullets.length = 0;
-    this.mines.clear();
     for (const player of this.players.values()) {
       player.input = emptyInput();
       player.firing = false;
@@ -680,7 +654,6 @@ export class ServerWorld {
     this.roundEnded = true;
     this.bullets.length = 0;
     this.powerups.clear();
-    this.mines.clear();
     this.wormholes.clear();
     for (const player of this.players.values()) {
       player.score = 0;
@@ -761,65 +734,8 @@ export class ServerWorld {
     if (type === "phase") player.phaseTimer = phaseDuration;
     if (type === "afterburner") player.afterburnerTimer = afterburnerDuration;
     if (type === "reflector") player.reflectorTimer = reflectorDuration;
-    if (type === "gravity") this.deployGravityMine(player);
     if (type === "fuel") player.state.energy = config.maxEnergy;
     if (type === "overcharge") player.state.energy = config.maxEnergy * 2;
-  }
-
-  private deployGravityMine(player: ServerPlayer): void {
-    this.mineCounter += 1;
-    this.mines.set(this.mineCounter, {
-      id: this.mineCounter,
-      owner: player.id,
-      position: { ...player.state.position },
-      timer: gravityMineFuse,
-    });
-    this.events.push([
-      "mine-deploy",
-      player.id,
-      this.mineCounter,
-      round(player.state.position.x),
-      round(player.state.position.y),
-    ]);
-  }
-
-  private stepGravityMines(): void {
-    for (const [id, mine] of this.mines) {
-      mine.timer = Math.max(0, mine.timer - fixedStep);
-      for (const player of this.players.values()) {
-        if (
-          player.id === mine.owner || player.spectator ||
-          player.respawnTimer > 0 || player.transit ||
-          player.phaseTimer > 0
-        ) continue;
-        const offsetX = mine.position.x - player.state.position.x;
-        const offsetY = mine.position.y - player.state.position.y;
-        const distance = Math.hypot(offsetX, offsetY);
-        if (distance <= 0 || distance >= gravityMinePullRadius) continue;
-        const acceleration = gravityMinePullAcceleration * (1 - distance / gravityMinePullRadius);
-        player.state.velocity.x += (offsetX / distance) * acceleration * fixedStep;
-        player.state.velocity.y += (offsetY / distance) * acceleration * fixedStep;
-      }
-      if (mine.timer > 0) continue;
-      this.events.push(["mine-explode", mine.owner, round(mine.position.x), round(mine.position.y)]);
-      for (const player of this.players.values()) {
-        if (
-          player.id === mine.owner || player.spectator ||
-          player.respawnTimer > 0 || player.transit ||
-          player.phaseTimer > 0
-        ) continue;
-        const distance = Math.sqrt(distanceSquared(mine.position, player.state.position));
-        if (distance >= gravityMineBlastRadius) continue;
-        this.damage(
-          player,
-          gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
-          mine.owner,
-        );
-        if (this.roundEnded) break;
-      }
-      this.mines.delete(id);
-      if (this.roundEnded) return;
-    }
   }
 
   private reflectBullet(bullet: ServerBullet, player: ServerPlayer): void {
@@ -956,10 +872,6 @@ export class ServerWorld {
       if ([...this.powerups.values()].some((powerup) =>
         distanceSquared(position, powerup.position) < separation ** 2,
       )) continue;
-      if ([...this.mines.values()].some((mine) =>
-        distanceSquared(position, mine.position) <
-          Math.max(separation, gravityMineBlastRadius + radius) ** 2,
-      )) continue;
       return position;
     }
     return null;
@@ -994,7 +906,7 @@ function isPowerupType(value: unknown): value is PowerupType {
 }
 
 const powerupTypes: PowerupType[] = [
-  "shield", "triple", "missile", "laser", "phase", "afterburner", "gravity", "reflector",
+  "shield", "triple", "missile", "laser", "phase", "afterburner", "reflector",
   "fuel", "overcharge",
 ];
 

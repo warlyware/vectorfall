@@ -114,13 +114,6 @@ app.innerHTML = `
           <div class="powerup-card-track"><div id="afterburner-powerup-fill"></div></div>
         </div>
       </article>
-      <article id="gravity-powerup-card" class="powerup-card gravity-card hidden">
-        <span class="powerup-card-icon">●</span>
-        <div class="powerup-card-details">
-          <div><strong>GRAVITY MINE</strong><output id="gravity-powerup-value">3.2s</output></div>
-          <div class="powerup-card-track"><div id="gravity-powerup-fill"></div></div>
-        </div>
-      </article>
       <article id="reflector-powerup-card" class="powerup-card reflector-card hidden">
         <span class="powerup-card-icon">↶</span>
         <div class="powerup-card-details">
@@ -216,17 +209,21 @@ app.innerHTML = `
   <section id="settings-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="controls-card settings-card">
       <div class="controls-heading">
-        <div><span class="eyebrow">SYSTEM MENU</span><h2 id="settings-title">SETTINGS</h2></div>
+        <div>
+          <span class="eyebrow">SYSTEM MENU</span>
+          <h2 id="settings-title">SETTINGS</h2>
+          <p id="settings-match-info" class="settings-subtitle hidden" aria-label="Active match settings">
+            <span id="settings-game-mode">ENDLESS</span>
+            <span class="settings-subtitle-separator" aria-hidden="true">·</span>
+            <span id="settings-map">CLASSIC ARENA</span>
+          </p>
+        </div>
         <button id="close-settings" class="close-controls" type="button" aria-label="Close settings">×</button>
       </div>
       <label class="settings-toggle" for="settings-player-names">
         <span><strong>PLAYER NAMES</strong><small>Display pilot names above ships.</small></span>
         <input id="settings-player-names" type="checkbox" checked />
       </label>
-      <dl id="settings-match-info" class="settings-match-info" aria-label="Active match settings">
-        <div><dt>GAME MODE</dt><dd id="settings-game-mode">ENDLESS</dd></div>
-        <div><dt>MAP</dt><dd id="settings-map">CLASSIC ARENA</dd></div>
-      </dl>
       <button id="settings-leave-match" class="settings-leave-match" type="button">LEAVE MATCH</button>
     </div>
   </section>
@@ -334,10 +331,6 @@ app.innerHTML = `
           <label>
             <input id="create-afterburner" type="checkbox" checked />
             <span><strong>AFTERBURNER</strong><small>Boosts acceleration, top speed, and energy recovery for 10 seconds.</small></span>
-          </label>
-          <label>
-            <input id="create-gravity" type="checkbox" checked />
-            <span><strong>GRAVITY MINE</strong><small>Deploys a trap that pulls enemies inward before detonating.</small></span>
           </label>
           <label>
             <input id="create-reflector" type="checkbox" checked />
@@ -482,14 +475,13 @@ type PowerupType =
   | "laser"
   | "phase"
   | "afterburner"
-  | "gravity"
   | "reflector"
   | "fuel"
   | "overcharge";
 type WeaponType = "standard" | "missile" | "laser";
 
 const powerupTypes: PowerupType[] = [
-  "shield", "triple", "missile", "laser", "phase", "afterburner", "gravity", "reflector",
+  "shield", "triple", "missile", "laser", "phase", "afterburner", "reflector",
   "fuel", "overcharge",
 ];
 
@@ -508,14 +500,6 @@ interface Powerup {
   position: Vec2;
   visual: THREE.Group;
   phase: number;
-}
-
-interface GravityMine {
-  id: string;
-  owner: string;
-  position: Vec2;
-  timer: number;
-  visual: THREE.Group;
 }
 
 interface WormholePair {
@@ -660,7 +644,6 @@ const remotePilots = new Map<string, RemotePilot>();
 const bullets: RenderedBullet[] = [];
 const laserBeams: LaserBeamEffect[] = [];
 const powerups = new Map<string, Powerup>();
-const gravityMines = new Map<string, GravityMine>();
 const wormholePairs = new Map<string, WormholePair>();
 const bulletGeometry = new THREE.CircleGeometry(2.7, 8);
 const localBulletMaterial = new THREE.MeshBasicMaterial({ color: 0x8ee8ff });
@@ -690,11 +673,6 @@ const laserDuration = 12;
 const phaseDuration = 5;
 const afterburnerDuration = 10;
 const reflectorDuration = 8;
-const gravityMineFuse = 3.2;
-const gravityMinePullRadius = 190;
-const gravityMineBlastRadius = 115;
-const gravityMinePullAcceleration = 285;
-const gravityMineDamage = 55;
 const maxActivePowerups = 4;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -763,7 +741,6 @@ const networkInterval = 0.12;
 let cpuCounter = 0;
 let cameraShake = 0;
 let powerupCounter = 0;
-let gravityMineCounter = 0;
 let powerupSpawnTimer = randomPowerupDelay();
 let wormholeCounter = 0;
 let wormholeSpawnTimer = randomWormholeDelay();
@@ -773,7 +750,7 @@ let activeGameSettings: GameSettings = {
   map: "classic",
   powerups: [
     "shield", "triple", "missile", "laser",
-    "phase", "afterburner", "gravity", "reflector", "fuel", "overcharge",
+    "phase", "afterburner", "reflector", "fuel", "overcharge",
   ],
   wormholes: true,
   gameMode: "endless",
@@ -839,9 +816,6 @@ const phasePowerupFill = getElement<HTMLElement>("phase-powerup-fill");
 const afterburnerPowerupCard = getElement<HTMLElement>("afterburner-powerup-card");
 const afterburnerPowerupValue = getElement<HTMLOutputElement>("afterburner-powerup-value");
 const afterburnerPowerupFill = getElement<HTMLElement>("afterburner-powerup-fill");
-const gravityPowerupCard = getElement<HTMLElement>("gravity-powerup-card");
-const gravityPowerupValue = getElement<HTMLOutputElement>("gravity-powerup-value");
-const gravityPowerupFill = getElement<HTMLElement>("gravity-powerup-fill");
 const reflectorPowerupCard = getElement<HTMLElement>("reflector-powerup-card");
 const reflectorPowerupValue = getElement<HTMLOutputElement>("reflector-powerup-value");
 const reflectorPowerupFill = getElement<HTMLElement>("reflector-powerup-fill");
@@ -891,7 +865,6 @@ const createMissileInput = getElement<HTMLInputElement>("create-missile");
 const createLaserInput = getElement<HTMLInputElement>("create-laser");
 const createPhaseInput = getElement<HTMLInputElement>("create-phase");
 const createAfterburnerInput = getElement<HTMLInputElement>("create-afterburner");
-const createGravityInput = getElement<HTMLInputElement>("create-gravity");
 const createReflectorInput = getElement<HTMLInputElement>("create-reflector");
 const createFuelInput = getElement<HTMLInputElement>("create-fuel");
 const createOverchargeInput = getElement<HTMLInputElement>("create-overcharge");
@@ -1297,7 +1270,6 @@ async function createGame(): Promise<void> {
   if (createLaserInput.checked) powerups.push("laser");
   if (createPhaseInput.checked) powerups.push("phase");
   if (createAfterburnerInput.checked) powerups.push("afterburner");
-  if (createGravityInput.checked) powerups.push("gravity");
   if (createReflectorInput.checked) powerups.push("reflector");
   if (createFuelInput.checked) powerups.push("fuel");
   if (createOverchargeInput.checked) powerups.push("overcharge");
@@ -1847,7 +1819,6 @@ function leaveRoom(): void {
   clearScorePopups();
   clearCombatLog();
   clearPowerups();
-  clearGravityMines();
   clearWormholes();
   clearWormholeJumpEffects();
   practiceControls.classList.add("hidden");
@@ -2017,11 +1988,7 @@ function handleNetworkMessage(data: unknown, fromId: string): void {
   if (data.kind === "powerup-sync") receivePowerupSync(data);
   if (data.kind === "powerup-sync-request" && isPowerupAuthority()) {
     broadcastPowerupSync();
-    broadcastGravityMineSync();
   }
-  if (data.kind === "gravity-mine-deploy") receiveGravityMineDeploy(data);
-  if (data.kind === "gravity-mine-remove" && typeof data.id === "string") removeGravityMine(data.id);
-  if (data.kind === "gravity-mine-sync") receiveGravityMineSync(data);
   if (data.kind === "wormhole-spawn") receiveWormholeSpawn(data);
   if (data.kind === "wormhole-remove") receiveWormholeRemove(data);
   if (data.kind === "wormhole-sync") receiveWormholeSync(data);
@@ -2033,7 +2000,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   if (
     !Array.isArray(data.settings) || !Array.isArray(data.ships) ||
     !Array.isArray(data.bullets) || !Array.isArray(data.powerups) ||
-    !Array.isArray(data.mines) || !Array.isArray(data.wormholes) || !Array.isArray(data.events) ||
+    !Array.isArray(data.wormholes) || !Array.isArray(data.events) ||
     !Array.isArray(data.round)
   ) return;
 
@@ -2049,7 +2016,6 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
     clearBullets();
     clearLaserBeams();
     clearPowerups();
-    clearGravityMines();
     clearWormholes();
   }
   const powerupMask = settings[1] as number;
@@ -2184,24 +2150,6 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
     if (id.startsWith("server-powerup-") && !seenPowerups.has(id)) removePowerup(id);
   }
 
-  const seenMines = new Set<string>();
-  for (const row of data.mines) {
-    if (!isServerMineRow(row)) continue;
-    const id = `server-mine-${row[0]}`;
-    seenMines.add(id);
-    const mine = gravityMines.get(id);
-    if (mine) {
-      mine.position.x = row[2];
-      mine.position.y = row[3];
-      mine.timer = row[4];
-    } else {
-      createGravityMine(id, row[1], { x: row[2], y: row[3] }, row[4]);
-    }
-  }
-  for (const id of [...gravityMines.keys()]) {
-    if (id.startsWith("server-mine-") && !seenMines.has(id)) removeGravityMine(id);
-  }
-
   const seenWormholes = new Set<string>();
   for (const row of data.wormholes) {
     if (!isServerWormholeRow(row)) continue;
@@ -2241,10 +2189,6 @@ function processServerEvent(event: unknown): void {
   } else if (kind === "reflect" && typeof event[1] === "string") {
     const pilot = event[1] === localId ? ship : remotePilots.get(event[1])?.state;
     arcadeAudio.reflect(pilot ? soundVolumeAt(pilot.position) : 0.5);
-  } else if (kind === "mine-explode" && event.slice(2, 4).every(isFiniteNumber)) {
-    const position = { x: event[2] as number, y: event[3] as number };
-    spawnExplosion(position);
-    arcadeAudio.mineExplosion(soundVolumeAt(position));
   } else if (kind === "wormhole-enter" && typeof event[1] === "string" && Number.isInteger(event[2])) {
     const pair = wormholePairs.get(`server-wormhole-${event[2]}`);
     if (!pair) return;
@@ -2278,11 +2222,6 @@ function isServerBulletRow(value: unknown): value is [number, string, WeaponType
 
 function isServerPowerupRow(value: unknown): value is [number, PowerupType, number, number] {
   return Array.isArray(value) && value.length >= 4 && Number.isInteger(value[0]) && isPowerupType(value[1]) && value.slice(2, 4).every(isFiniteNumber);
-}
-
-function isServerMineRow(value: unknown): value is [number, string, number, number, number] {
-  return Array.isArray(value) && value.length >= 5 && Number.isInteger(value[0]) &&
-    typeof value[1] === "string" && value.slice(2, 5).every(isFiniteNumber);
 }
 
 function isServerWormholeRow(value: unknown): value is [number, number, number, number, number, number, number] {
@@ -2714,45 +2653,6 @@ function broadcastPowerupSync(): void {
       type: powerup.type,
       x: roundNetworkValue(powerup.position.x),
       y: roundNetworkValue(powerup.position.y),
-    })),
-  });
-}
-
-function receiveGravityMineDeploy(data: Record<string, unknown>): void {
-  if (
-    typeof data.id !== "string" || typeof data.owner !== "string" ||
-    !isFiniteNumber(data.x) || !isFiniteNumber(data.y)
-  ) return;
-  createGravityMine(
-    data.id,
-    data.owner,
-    {
-      x: clampNumber(data.x, -worldWidth / 2, worldWidth / 2),
-      y: clampNumber(data.y, -worldHeight / 2, worldHeight / 2),
-    },
-    isFiniteNumber(data.timer) ? clampNumber(data.timer, 0, gravityMineFuse) : gravityMineFuse,
-  );
-}
-
-function receiveGravityMineSync(data: Record<string, unknown>): void {
-  if (!Array.isArray(data.items)) return;
-  clearGravityMines();
-  for (const item of data.items) {
-    if (!isRecord(item)) continue;
-    receiveGravityMineDeploy(item);
-  }
-}
-
-function broadcastGravityMineSync(): void {
-  if (!joined || !portalsNet || !isPowerupAuthority()) return;
-  portalsNet.send({
-    kind: "gravity-mine-sync",
-    items: [...gravityMines.values()].map((mine) => ({
-      id: mine.id,
-      owner: mine.owner,
-      x: roundNetworkValue(mine.position.x),
-      y: roundNetworkValue(mine.position.y),
-      timer: roundNetworkValue(mine.timer),
     })),
   });
 }
@@ -3310,10 +3210,7 @@ function findRandomSpawn(): { position: { x: number; y: number }; angle: number 
       distanceSquared(position, pair.first) < (wormholeRadius + config.shipRadius + 8) ** 2 ||
       distanceSquared(position, pair.second) < (wormholeRadius + config.shipRadius + 8) ** 2,
     );
-    const insideMine = [...gravityMines.values()].some((mine) =>
-      distanceSquared(position, mine.position) < (gravityMineBlastRadius + config.shipRadius) ** 2,
-    );
-    if (!insideWall && !insideWormhole && !insideMine) {
+    if (!insideWall && !insideWormhole) {
       return { position, angle: Math.random() * Math.PI * 2 };
     }
   }
@@ -3749,9 +3646,7 @@ function randomWormholeDelay(): number {
 
 function resetPowerupState(): void {
   clearPowerups();
-  clearGravityMines();
   powerupCounter = 0;
-  gravityMineCounter = 0;
   powerupSpawnTimer = randomPowerupDelay();
 }
 
@@ -3799,72 +3694,6 @@ function stepPowerups(): void {
     if (!pilot.isCpu || pilot.respawning || pilot.transiting) continue;
     const pickup = findPowerupAt(pilot.state.position);
     if (pickup) collectPowerupForPilot(id, pilot, pickup);
-  }
-}
-
-function stepGravityMines(): void {
-  for (const [id, mine] of [...gravityMines]) {
-    mine.timer = Math.max(0, mine.timer - fixedStep);
-    if (
-      mine.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
-    ) {
-      applyGravityMinePull(ship, mine.position);
-    }
-    for (const [pilotId, pilot] of remotePilots) {
-      if (
-        !pilot.isCpu || pilotId === mine.owner || pilot.respawning || pilot.transiting ||
-        pilot.phaseTimer > 0
-      ) continue;
-      applyGravityMinePull(pilot.state, mine.position);
-    }
-    if (mine.timer > 0) continue;
-    explodeGravityMine(mine);
-    removeGravityMine(id);
-    if (joined && portalsNet && isPowerupAuthority()) {
-      portalsNet.send({ kind: "gravity-mine-remove", id });
-    }
-  }
-}
-
-function applyGravityMinePull(state: ShipState, minePosition: Vec2): void {
-  const offsetX = minePosition.x - state.position.x;
-  const offsetY = minePosition.y - state.position.y;
-  const distance = Math.hypot(offsetX, offsetY);
-  if (distance <= 0 || distance >= gravityMinePullRadius) return;
-  const acceleration = gravityMinePullAcceleration * (1 - distance / gravityMinePullRadius);
-  state.velocity.x += (offsetX / distance) * acceleration * fixedStep;
-  state.velocity.y += (offsetY / distance) * acceleration * fixedStep;
-}
-
-function explodeGravityMine(mine: GravityMine): void {
-  spawnExplosion(mine.position);
-  arcadeAudio.mineExplosion(soundVolumeAt(mine.position));
-  if (
-    mine.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
-  ) {
-    const distance = Math.sqrt(distanceSquared(mine.position, ship.position));
-    if (distance < gravityMineBlastRadius && spawnProtectionTimer <= 0) {
-      shipShield = applyDamage(
-        ship,
-        shipShield,
-        gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
-      );
-      if (ship.energy === 0) destroyLocalShip(mine.owner);
-    }
-  }
-  for (const [pilotId, pilot] of remotePilots) {
-    if (
-      !pilot.isCpu || pilotId === mine.owner || pilot.respawning || pilot.transiting ||
-      pilot.phaseTimer > 0
-    ) continue;
-    const distance = Math.sqrt(distanceSquared(mine.position, pilot.state.position));
-    if (distance >= gravityMineBlastRadius || pilot.spawnProtectionTimer > 0) continue;
-    pilot.shield = applyDamage(
-      pilot.state,
-      pilot.shield,
-      gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
-    );
-    if (pilot.state.energy === 0) destroyCpuPilot(pilot, mine.owner);
   }
 }
 
@@ -4104,9 +3933,6 @@ function findRandomPowerupPosition(): Vec2 | null {
     if ([...powerups.values()].some((powerup) =>
       distanceSquared(position, powerup.position) < 75 * 75,
     )) continue;
-    if ([...gravityMines.values()].some((mine) =>
-      distanceSquared(position, mine.position) < 75 * 75,
-    )) continue;
     return position;
   }
   return null;
@@ -4161,7 +3987,6 @@ function clearWormholes(): void {
 
 function collectPowerupForLocal(powerup: Powerup): void {
   arcadeAudio.powerup(powerup.type);
-  if (powerup.type === "gravity") deployGravityMine(localId, ship.position);
   if (powerup.type === "fuel") ship.energy = config.maxEnergy;
   if (powerup.type === "overcharge") ship.energy = config.maxEnergy * 2;
   applyPowerup(
@@ -4193,7 +4018,6 @@ function collectPowerupForPilot(id: string, pilot: RemotePilot, powerup?: Poweru
   const pickup = powerup ?? findPowerupAt(pilot.state.position);
   if (!pickup) return;
   arcadeAudio.powerup(pickup.type, soundVolumeAt(pilot.state.position) * 0.65);
-  if (pickup.type === "gravity") deployGravityMine(id, pilot.state.position);
   if (pickup.type === "fuel") pilot.state.energy = config.maxEnergy;
   if (pickup.type === "overcharge") pilot.state.energy = config.maxEnergy * 2;
   applyPowerup(
@@ -4312,77 +4136,6 @@ function clearPowerups(): void {
   for (const id of [...powerups.keys()]) removePowerup(id);
 }
 
-function deployGravityMine(owner: string, position: Vec2): void {
-  gravityMineCounter += 1;
-  const id = `gravity-mine-${owner}-${gravityMineCounter}`;
-  createGravityMine(id, owner, position, gravityMineFuse);
-  if (joined && portalsNet) {
-    portalsNet.send({
-      kind: "gravity-mine-deploy",
-      id,
-      owner,
-      x: roundNetworkValue(position.x),
-      y: roundNetworkValue(position.y),
-      timer: gravityMineFuse,
-    });
-  }
-}
-
-function createGravityMine(
-  id: string,
-  owner: string,
-  position: Vec2,
-  timer = gravityMineFuse,
-): void {
-  if (gravityMines.has(id)) return;
-  const visual = createGravityMineVisual();
-  visual.position.set(position.x, position.y, 1.4);
-  scene.add(visual);
-  gravityMines.set(id, {
-    id,
-    owner,
-    position: { ...position },
-    timer: clampNumber(timer, 0, gravityMineFuse),
-    visual,
-  });
-}
-
-function removeGravityMine(id: string): void {
-  const mine = gravityMines.get(id);
-  if (!mine) return;
-  scene.remove(mine.visual);
-  disposePowerupVisual(mine.visual);
-  gravityMines.delete(id);
-}
-
-function clearGravityMines(): void {
-  for (const id of [...gravityMines.keys()]) removeGravityMine(id);
-}
-
-function createGravityMineVisual(): THREE.Group {
-  const group = new THREE.Group();
-  const field = new THREE.Group();
-  field.name = "mine-field";
-  field.add(
-    createRadialLoop(18, 28, 0xc77dff, 0.75, 1.4),
-    createRadialLoop(27, 36, 0x6f4dff, 0.3, 1.8),
-    createRadialLoop(38, 44, 0x4b32a8, 0.14, 2.2),
-  );
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(7, 14, 10),
-    glowMaterial(0xf1deff, 0.82),
-  );
-  core.name = "mine-core";
-  const halo = new THREE.Mesh(
-    new THREE.CircleGeometry(20, 28),
-    glowMaterial(0x9d63ff, 0.08),
-  );
-  halo.name = "mine-halo";
-  halo.position.z = -0.3;
-  group.add(halo, field, core);
-  return group;
-}
-
 function createPowerupVisual(type: PowerupType): THREE.Group {
   const group = new THREE.Group();
   const colors: Record<PowerupType, [number, number]> = {
@@ -4392,7 +4145,6 @@ function createPowerupVisual(type: PowerupType): THREE.Group {
     laser: [0x8dfff1, 0x35d7ff],
     phase: [0xd9c8ff, 0x936dff],
     afterburner: [0xffb36b, 0xff553d],
-    gravity: [0xdca8ff, 0x713dff],
     reflector: [0x8ffff3, 0x27a8ff],
     fuel: [0xb0ffdc, 0x35e89a],
     overcharge: [0x7dffe6, 0x27baff],
@@ -4514,12 +4266,6 @@ function createPowerupVisual(type: PowerupType): THREE.Group {
       );
       icon.add(chevron);
     }
-  } else if (type === "gravity") {
-    icon.add(
-      new THREE.Mesh(new THREE.CircleGeometry(4, 16), glowMaterial(0xffffff, 0.95)),
-      createRadialLoop(9, 28, accent, 0.8, 1.2),
-      createRadialLoop(14, 34, color, 0.45, 1.8),
-    );
   } else if (type === "fuel") {
     const tank = new THREE.Mesh(new THREE.PlaneGeometry(12, 16), glowMaterial(color, 0.82));
     const tankCore = new THREE.Mesh(new THREE.PlaneGeometry(7, 11), glowMaterial(0xffffff, 0.5));
@@ -4875,23 +4621,6 @@ function updatePowerupVisuals(frameDelta: number): void {
         material.opacity = material.userData.baseOpacity * twinkle;
       });
     }
-  }
-}
-
-function updateGravityMineVisuals(frameDelta: number): void {
-  const time = performance.now() * 0.001;
-  for (const mine of gravityMines.values()) {
-    mine.visual.position.set(mine.position.x, mine.position.y, 1.4);
-    const urgency = 1 - THREE.MathUtils.clamp(mine.timer / gravityMineFuse, 0, 1);
-    const field = mine.visual.getObjectByName("mine-field");
-    const core = mine.visual.getObjectByName("mine-core");
-    const halo = mine.visual.getObjectByName("mine-halo");
-    if (field) {
-      field.rotation.z -= frameDelta * (0.55 + urgency * 2.2);
-      field.scale.setScalar(0.88 + Math.sin(time * (3 + urgency * 8)) * (0.04 + urgency * 0.08));
-    }
-    if (core) core.scale.setScalar(0.82 + urgency * 0.5 + Math.sin(time * 10) * 0.08);
-    if (halo) halo.scale.setScalar(0.9 + Math.sin(time * 4.2) * 0.12 + urgency * 0.22);
   }
 }
 
@@ -5631,7 +5360,6 @@ function simulateFixedStep(): void {
 
   stepCpuPilots();
   stepPowerups();
-  stepGravityMines();
   stepWormholes();
 
   for (let index = bullets.length - 1; index >= 0; index -= 1) {
@@ -6047,7 +5775,6 @@ function renderWorld(frameDelta: number): void {
   updateCombatLog(frameDelta);
   if (!paused) updateLaserBeams(frameDelta);
   if (!paused) updatePowerupVisuals(frameDelta);
-  if (!paused) updateGravityMineVisuals(frameDelta);
   if (!paused) updateWormholeVisuals(frameDelta);
   if (!paused) updateWormholeJumpEffects(frameDelta);
 
@@ -6180,12 +5907,8 @@ function updatePowerupTray(): void {
   const phaseActive = inSession && phaseTimer > 0;
   const afterburnerActive = inSession && afterburnerTimer > 0;
   const reflectorActive = inSession && reflectorTimer > 0;
-  const ownedMines = [...gravityMines.values()]
-    .filter((mine) => mine.owner === localId)
-    .sort((first, second) => first.timer - second.timer);
-  const gravityActive = inSession && ownedMines.length > 0;
   const anyActive = shieldActive || tripleActive || missileActive || laserActive ||
-    phaseActive || afterburnerActive || gravityActive || reflectorActive;
+    phaseActive || afterburnerActive || reflectorActive;
   powerupTray.classList.toggle("hidden", !anyActive);
   shieldPowerupCard.classList.toggle("hidden", !shieldActive);
   triplePowerupCard.classList.toggle("hidden", !tripleActive);
@@ -6193,7 +5916,6 @@ function updatePowerupTray(): void {
   laserPowerupCard.classList.toggle("hidden", !laserActive);
   phasePowerupCard.classList.toggle("hidden", !phaseActive);
   afterburnerPowerupCard.classList.toggle("hidden", !afterburnerActive);
-  gravityPowerupCard.classList.toggle("hidden", !gravityActive);
   reflectorPowerupCard.classList.toggle("hidden", !reflectorActive);
   chatPanel.classList.toggle("powerups-active", anyActive);
   if (shieldActive) {
@@ -6240,16 +5962,6 @@ function updatePowerupTray(): void {
     afterburnerPowerupValue.textContent = `${afterburnerTimer.toFixed(1)}s`;
     afterburnerPowerupFill.style.width = `${percent}%`;
     afterburnerPowerupCard.classList.toggle("expiring", afterburnerTimer <= 3);
-  }
-
-  if (gravityActive) {
-    const mineTimer = ownedMines[0].timer;
-    const percent = THREE.MathUtils.clamp(mineTimer / gravityMineFuse, 0, 1) * 100;
-    gravityPowerupValue.textContent = ownedMines.length > 1
-      ? `${ownedMines.length} · ${mineTimer.toFixed(1)}s`
-      : `${mineTimer.toFixed(1)}s`;
-    gravityPowerupFill.style.width = `${percent}%`;
-    gravityPowerupCard.classList.toggle("expiring", mineTimer <= 1);
   }
 
   if (reflectorActive) {

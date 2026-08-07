@@ -203,33 +203,11 @@ describe("authoritative server world", () => {
     expect(snapshot.events).toContainEqual(["reflect", "reflector"]);
   });
 
-  it("pulls enemies into gravity mines and applies blast damage", () => {
-    const world = new ServerWorld();
-    world.configure({ map: "open", powerups: [], wormholes: false });
-    world.addPlayer("owner", 0);
-    world.addPlayer("victim", 0);
-    world.takeSnapshot();
-    const owner = world.players.get("owner")!;
-    const victim = world.players.get("victim")!;
-    owner.state.position = { x: 300, y: 300 };
-    victim.state.position = { x: 80, y: 0 };
-    victim.state.velocity = { x: 0, y: 0 };
-    victim.state.energy = 100;
-    victim.spawnProtectionTimer = 0;
-    world.mines.set(1, { id: 1, owner: "owner", position: { x: 0, y: 0 }, timer: 0.05 });
-    world.step(0.1, 100);
-
-    const snapshot = world.takeSnapshot();
-    expect(victim.state.velocity.x).toBeLessThan(0);
-    expect(victim.state.energy).toBeLessThan(100);
-    expect(snapshot.events).toContainEqual(["mine-explode", "owner", 0, 0]);
-  });
-
   it("activates each new effect when its arena pickup is collected", () => {
     const world = new ServerWorld();
     world.configure({
       map: "open",
-      powerups: ["phase", "afterburner", "gravity", "reflector"],
+      powerups: ["phase", "afterburner", "reflector"],
       wormholes: false,
     });
     world.addPlayer("pilot", 0);
@@ -239,7 +217,6 @@ describe("authoritative server world", () => {
       [1, "phase"],
       [2, "afterburner"],
       [3, "reflector"],
-      [4, "gravity"],
     ] as const) {
       world.powerups.set(id, { id, type, position: { ...pilot.state.position } });
       world.step(0.01, id * 10);
@@ -248,8 +225,7 @@ describe("authoritative server world", () => {
     expect(pilot.phaseTimer).toBeGreaterThan(4.9);
     expect(pilot.afterburnerTimer).toBeGreaterThan(9.9);
     expect(pilot.reflectorTimer).toBeGreaterThan(7.9);
-    expect(world.mines.size).toBe(1);
-    expect(world.takeSnapshot().settings[1]).toBe(0b11110000);
+    expect(world.takeSnapshot().settings[1]).toBe(0b1110000);
   });
 
   it("refills and overcharges ship energy from instant pickups", () => {
@@ -272,7 +248,7 @@ describe("authoritative server world", () => {
     expect(pilot.state.energy).toBe(200);
     world.step(0.1, 120);
     expect(pilot.state.energy).toBe(200);
-    expect(world.takeSnapshot().settings[1]).toBe(0b1100000000);
+    expect(world.takeSnapshot().settings[1]).toBe(0b110000000);
   });
 
   it("awards kills, penalizes deaths, and resets a completed top-score round", () => {
