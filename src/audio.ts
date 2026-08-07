@@ -96,6 +96,13 @@ export class ArcadeAudio {
     this.tone(920, 1840, 0.16, "sine", 0.1 * volume, 0.035);
   }
 
+  win(volume = 1): void {
+    [523, 659, 784, 1047, 1319].forEach((frequency, index) => {
+      this.tone(frequency, frequency * 1.015, 0.24, index % 2 ? "triangle" : "square", 0.1 * volume, index * 0.11);
+    });
+    this.noise(0.32, 0.055 * volume, 900, 4200, 0.34);
+  }
+
   private tone(
     startFrequency: number,
     endFrequency: number,

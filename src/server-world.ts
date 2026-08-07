@@ -24,6 +24,8 @@ export interface ServerGameSettings {
   map: ArenaMapId;
   powerups: PowerupType[];
   wormholes: boolean;
+  gameMode: "endless" | "top-score";
+  scoreToWin: number;
 }
 
 export interface ServerInputMessage {
@@ -47,6 +49,7 @@ interface ServerPlayer {
   respawnTimer: number;
   wormholeCooldown: number;
   transit: { destination: Vec2; remaining: number } | null;
+  score: number;
 }
 
 interface ServerBullet {
@@ -73,10 +76,10 @@ export interface ServerSnapshot {
   k: "s";
   sv: 1;
   tick: number;
-  settings: [ArenaMapId, number, number];
+  settings: [ArenaMapId, number, number, number, number];
   ships: Array<[
     string, number, number, number, number, number, number, number,
-    number, number, number, number, number, number, number,
+    number, number, number, number, number, number, number, number,
   ]>;
   bullets: Array<[number, string, WeaponType, number, number, number, number, number]>;
   powerups: Array<[number, PowerupType, number, number]>;
@@ -144,6 +147,8 @@ const defaultSettings: ServerGameSettings = {
   map: "classic",
   powerups: ["shield", "triple", "missile", "laser"],
   wormholes: true,
+  gameMode: "endless",
+  scoreToWin: 5,
 };
 
 export class ServerWorld {
@@ -162,6 +167,8 @@ export class ServerWorld {
   private wormholeSpawnTimer = randomDelay(wormholeSpawnMinimum, wormholeSpawnMaximum);
   private events: unknown[] = [];
   private now = 0;
+  private roundEnded = false;
+  private roundRestartTimer = 0;
 
   configure(value: unknown): boolean {
     if (this.configured || !isRecord(value) || !isArenaMapId(value.map)) return false;
@@ -170,6 +177,8 @@ export class ServerWorld {
       map: value.map,
       powerups: [...new Set(value.powerups.filter(isPowerupType))],
       wormholes: value.wormholes !== false,
+      gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+      scoreToWin: clamp(Number.isInteger(value.scoreToWin) ? value.scoreToWin as number : 5, 1, 100),
     };
     this.configured = true;
     this.bullets.length = 0;
@@ -201,6 +210,7 @@ export class ServerWorld {
       respawnTimer: 0,
       wormholeCooldown: 0,
       transit: null,
+      score: 0,
     });
     this.events.push(["spawn", id, round(state.position.x), round(state.position.y)]);
     return true;
@@ -251,7 +261,13 @@ export class ServerWorld {
       k: "s",
       sv: 1,
       tick: this.tick,
-      settings: [this.settings.map, powerupMask, Number(this.settings.wormholes)],
+      settings: [
+        this.settings.map,
+        powerupMask,
+        Number(this.settings.wormholes),
+        Number(this.settings.gameMode === "top-score"),
+        this.settings.scoreToWin,
+      ],
       ships: [...this.players.values()].map((player) => [
         player.id,
         round(player.state.position.x), round(player.state.position.y),
@@ -259,7 +275,7 @@ export class ServerWorld {
         round(player.state.angle), round(player.state.energy), round(player.shield),
         round(player.tripleTimer), round(player.missileTimer), round(player.laserTimer),
         round(player.respawnTimer), round(player.transit?.remaining ?? 0),
-        player.lastSequence, inputMask(player.input),
+        player.lastSequence, inputMask(player.input), player.score,
       ]),
       bullets: this.bullets.map((bullet) => [
         bullet.id, bullet.state.owner, bullet.weapon,
@@ -282,6 +298,12 @@ export class ServerWorld {
   }
 
   private stepFixed(): void {
+    this.roundEnded = false;
+    if (this.roundRestartTimer > 0) {
+      this.roundRestartTimer = Math.max(0, this.roundRestartTimer - fixedStep);
+      if (this.roundRestartTimer === 0) this.resetRound();
+      return;
+    }
     for (const player of this.players.values()) this.stepPlayer(player);
     this.stepBullets();
     this.stepPowerups();
@@ -331,7 +353,10 @@ export class ServerWorld {
     if (weapon !== "laser" && this.bullets.length + offsets.length > maxBullets) return;
     if (weapon === "laser") {
       player.state.energy -= cost;
-      for (const offset of offsets) this.fireLaser(player, offset);
+      for (const offset of offsets) {
+        this.fireLaser(player, offset);
+        if (this.roundEnded) break;
+      }
     } else {
       for (const offset of offsets) {
         const bullet = fireBullet(player.state, config, player.id, offset);
@@ -361,7 +386,7 @@ export class ServerWorld {
     };
     const end = this.traceRay(start, direction);
     const target = this.firstPlayerOnSegment(player.id, start, end);
-    if (target) this.damage(target, config.bulletDamage * 1.6);
+    if (target) this.damage(target, config.bulletDamage * 1.6, player.id);
     this.events.push(["laser", player.id, round(start.x), round(start.y), round(end.x), round(end.y)]);
   }
 
@@ -378,7 +403,12 @@ export class ServerWorld {
         player.id !== bullet.state.owner && player.respawnTimer === 0 && !player.transit &&
         circlesIntersect(bullet.state.position, radius, player.state.position, config.shipRadius),
       );
-      if (hit) this.damage(hit, bullet.weapon === "missile" ? config.bulletDamage * 1.3 : config.bulletDamage);
+      if (hit) this.damage(
+        hit,
+        bullet.weapon === "missile" ? config.bulletDamage * 1.3 : config.bulletDamage,
+        bullet.state.owner,
+      );
+      if (this.roundEnded) return;
       if (hit || bullet.state.lifetime <= 0) this.bullets.splice(index, 1);
     }
   }
@@ -406,7 +436,7 @@ export class ServerWorld {
     bullet.state.velocity.y = Math.sin(current + turn) * speed;
   }
 
-  private damage(player: ServerPlayer, damage: number): void {
+  private damage(player: ServerPlayer, damage: number, attackerId: string): void {
     const absorbed = Math.min(player.shield, damage);
     player.shield -= absorbed;
     player.state.energy = Math.max(0, player.state.energy - (damage - absorbed));
@@ -420,7 +450,50 @@ export class ServerWorld {
     player.tripleTimer = 0;
     player.missileTimer = 0;
     player.laserTimer = 0;
-    this.events.push(["death", player.id, round(player.state.position.x), round(player.state.position.y)]);
+    player.score -= 1;
+    const attacker = this.players.get(attackerId);
+    if (attacker && attacker.id !== player.id) attacker.score += 1;
+    this.events.push([
+      "death",
+      player.id,
+      round(player.state.position.x),
+      round(player.state.position.y),
+      attackerId,
+    ]);
+    if (
+      attacker && this.settings.gameMode === "top-score" &&
+      attacker.score >= this.settings.scoreToWin
+    ) {
+      this.events.push(["win", attacker.id]);
+      this.beginRoundRestart();
+    }
+  }
+
+  private beginRoundRestart(): void {
+    this.roundEnded = true;
+    this.roundRestartTimer = 3.5;
+    this.bullets.length = 0;
+    for (const player of this.players.values()) {
+      player.input = emptyInput();
+      player.firing = false;
+    }
+  }
+
+  private resetRound(): void {
+    this.roundEnded = true;
+    this.bullets.length = 0;
+    this.powerups.clear();
+    this.wormholes.clear();
+    for (const player of this.players.values()) {
+      player.score = 0;
+      player.shield = 0;
+      player.tripleTimer = 0;
+      player.missileTimer = 0;
+      player.laserTimer = 0;
+      player.respawnTimer = 0;
+      player.transit = null;
+      this.respawn(player);
+    }
   }
 
   private respawn(player: ServerPlayer): void {

@@ -161,6 +161,8 @@ function matchmake(fromId: string): void {
       map: "classic",
       powerups: ["shield", "triple", "missile", "laser"],
       wormholes: true,
+      gameMode: "endless",
+      scoreToWin: 5,
     },
     public: true,
     joinInProgress: true,
@@ -226,6 +228,10 @@ function readSettings(value: unknown): ServerGameSettings | null {
     map: value.map,
     powerups: value.powerups.filter(isPowerupType),
     wormholes: value.wormholes !== false,
+    gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+    scoreToWin: Number.isInteger(value.scoreToWin)
+      ? Math.max(1, Math.min(100, value.scoreToWin as number))
+      : 5,
   };
 }
 

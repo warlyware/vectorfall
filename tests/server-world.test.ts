@@ -8,7 +8,7 @@ describe("authoritative server world", () => {
     expect(world.configure({ map: "classic", powerups: [], wormholes: true })).toBe(false);
 
     const snapshot = world.takeSnapshot();
-    expect(snapshot.settings).toEqual(["open", 0b1001, 0]);
+    expect(snapshot.settings).toEqual(["open", 0b1001, 0, 0, 5]);
   });
 
   it("respawns existing pilots when the owner selects a different arena", () => {
@@ -61,5 +61,63 @@ describe("authoritative server world", () => {
     const snapshot = world.takeSnapshot();
     expect(snapshot.bullets.length).toBeGreaterThan(0);
     expect(snapshot.events).toContainEqual(["fire", "pilot", "standard", 1]);
+  });
+
+  it("awards kills, penalizes deaths, and resets a completed top-score round", () => {
+    const world = new ServerWorld();
+    world.configure({
+      map: "open",
+      powerups: [],
+      wormholes: false,
+      gameMode: "top-score",
+      scoreToWin: 1,
+    });
+    world.addPlayer("winner", 0);
+    world.addPlayer("victim", 0);
+    world.takeSnapshot();
+    const winner = world.players.get("winner")!;
+    const victim = world.players.get("victim")!;
+    winner.state.position = { x: 0, y: 0 };
+    winner.state.velocity = { x: 0, y: 0 };
+    winner.state.angle = 0;
+    victim.state.position = { x: 36, y: 0 };
+    victim.state.velocity = { x: 0, y: 0 };
+    victim.state.energy = 1;
+    world.setInput("winner", { q: 1, m: 0, f: true }, 0);
+    world.step(0.1, 100);
+
+    const winningSnapshot = world.takeSnapshot();
+    expect(winningSnapshot.events).toContainEqual(["win", "winner"]);
+    expect(winningSnapshot.ships.find((ship) => ship[0] === "winner")?.[15]).toBe(1);
+    for (let frame = 1; frame <= 36; frame += 1) world.step(0.1, 100 + frame * 100);
+    expect(world.takeSnapshot().ships.every((ship) => ship[15] === 0)).toBe(true);
+  });
+
+  it("keeps kill and death scores during endless play", () => {
+    const world = new ServerWorld();
+    world.configure({
+      map: "open",
+      powerups: [],
+      wormholes: false,
+      gameMode: "endless",
+      scoreToWin: 5,
+    });
+    world.addPlayer("attacker", 0);
+    world.addPlayer("victim", 0);
+    world.takeSnapshot();
+    const attacker = world.players.get("attacker")!;
+    const victim = world.players.get("victim")!;
+    attacker.state.position = { x: 0, y: 0 };
+    attacker.state.velocity = { x: 0, y: 0 };
+    attacker.state.angle = 0;
+    victim.state.position = { x: 36, y: 0 };
+    victim.state.velocity = { x: 0, y: 0 };
+    victim.state.energy = 1;
+    world.setInput("attacker", { q: 1, m: 0, f: true }, 0);
+    world.step(0.1, 100);
+
+    const ships = world.takeSnapshot().ships;
+    expect(ships.find((ship) => ship[0] === "attacker")?.[15]).toBe(1);
+    expect(ships.find((ship) => ship[0] === "victim")?.[15]).toBe(-1);
   });
 });

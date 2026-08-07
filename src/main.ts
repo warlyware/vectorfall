@@ -141,6 +141,23 @@ app.innerHTML = `
       <button id="settings-leave-match" class="settings-leave-match" type="button">LEAVE MATCH</button>
     </div>
   </section>
+  <section id="leaderboard" class="leaderboard hidden" aria-label="Match leaderboard">
+    <div class="leaderboard-heading"><span>LEADERBOARD</span><button id="expand-leaderboard" type="button" aria-label="Expand leaderboard">↗</button></div>
+    <ol id="leaderboard-top-five"></ol>
+  </section>
+  <section id="leaderboard-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title">
+    <div class="controls-card leaderboard-card">
+      <div class="controls-heading">
+        <div><span class="eyebrow">MATCH STANDINGS</span><h2 id="leaderboard-title">LEADERBOARD</h2></div>
+        <button id="close-leaderboard" class="close-controls" type="button" aria-label="Close leaderboard">×</button>
+      </div>
+      <ol id="leaderboard-all" class="leaderboard-all"></ol>
+    </div>
+  </section>
+  <div id="winner-celebration" class="winner-celebration hidden" aria-live="assertive">
+    <strong id="winner-message"></strong>
+    <div id="confetti" class="confetti" aria-hidden="true"></div>
+  </div>
   <div id="paused" class="paused hidden">PAUSED</div>
   <section id="lobby" class="lobby">
     <div class="lobby-art" aria-hidden="true"></div>
@@ -172,6 +189,15 @@ app.innerHTML = `
           <option value="crossroads">CROSSROADS</option>
           <option value="open">OPEN VOID</option>
         </select>
+        <label for="create-game-mode">GAME MODE</label>
+        <select id="create-game-mode">
+          <option value="endless">ENDLESS</option>
+          <option value="top-score">TOP SCORE</option>
+        </select>
+        <div id="score-to-win-field" class="score-to-win-field hidden">
+          <label for="create-score-to-win">POINTS NEEDED TO WIN</label>
+          <input id="create-score-to-win" type="number" min="1" max="100" step="1" value="5" />
+        </div>
         <span class="lobby-field-label">ACTIVE POWERUPS</span>
         <div class="powerup-options">
           <label>
@@ -318,6 +344,8 @@ interface GameSettings {
   map: ArenaMapId;
   powerups: PowerupType[];
   wormholes: boolean;
+  gameMode: "endless" | "top-score";
+  scoreToWin: number;
 }
 
 interface Powerup {
@@ -537,6 +565,8 @@ let activeGameSettings: GameSettings = {
   map: "classic",
   powerups: ["shield", "triple", "missile", "laser"],
   wormholes: true,
+  gameMode: "endless",
+  scoreToWin: 5,
 };
 let isGameCreator = false;
 let pendingRoomRequest = false;
@@ -544,6 +574,9 @@ let roomRequestToken = 0;
 const currentRoomPlayerIds = new Set<string>();
 const unknownEnemyNumbers = new Map<string, number>();
 let unknownEnemyCounter = 0;
+const playerScores = new Map<string, number>();
+let leaderboardModalOpen = false;
+let winnerCelebrationTimer: number | undefined;
 
 interface PublicRoomListing {
   code: string;
@@ -607,6 +640,9 @@ const roomList = getElement<HTMLElement>("room-list");
 const createRoomButton = getElement<HTMLButtonElement>("create-room");
 const createRoomCodeInput = getElement<HTMLInputElement>("create-room-code");
 const createMapSelect = getElement<HTMLSelectElement>("create-map");
+const createGameModeSelect = getElement<HTMLSelectElement>("create-game-mode");
+const scoreToWinField = getElement<HTMLElement>("score-to-win-field");
+const createScoreToWinInput = getElement<HTMLInputElement>("create-score-to-win");
 const createShieldInput = getElement<HTMLInputElement>("create-shield");
 const createTripleInput = getElement<HTMLInputElement>("create-triple");
 const createMissileInput = getElement<HTMLInputElement>("create-missile");
@@ -636,6 +672,15 @@ const settingsButton = getElement<HTMLButtonElement>("settings-button");
 const settingsModal = getElement<HTMLElement>("settings-modal");
 const closeSettingsButton = getElement<HTMLButtonElement>("close-settings");
 const settingsLeaveMatchButton = getElement<HTMLButtonElement>("settings-leave-match");
+const leaderboard = getElement<HTMLElement>("leaderboard");
+const leaderboardTopFive = getElement<HTMLOListElement>("leaderboard-top-five");
+const expandLeaderboardButton = getElement<HTMLButtonElement>("expand-leaderboard");
+const leaderboardModal = getElement<HTMLElement>("leaderboard-modal");
+const closeLeaderboardButton = getElement<HTMLButtonElement>("close-leaderboard");
+const leaderboardAll = getElement<HTMLOListElement>("leaderboard-all");
+const winnerCelebration = getElement<HTMLElement>("winner-celebration");
+const winnerMessage = getElement<HTMLElement>("winner-message");
+const confetti = getElement<HTMLElement>("confetti");
 const portalsNet = window.Portals?.net;
 const portalsVoice = window.Portals?.voice;
 const voiceChatEnabled = false;
@@ -680,6 +725,9 @@ document.querySelectorAll<HTMLButtonElement>("[data-lobby-back]").forEach((butto
   button.addEventListener("click", () => setLobbyMenu("main"));
 });
 createRoomButton.addEventListener("click", () => void createGame());
+createGameModeSelect.addEventListener("change", () => {
+  scoreToWinField.classList.toggle("hidden", createGameModeSelect.value !== "top-score");
+});
 createRoomCodeInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
@@ -702,6 +750,11 @@ settingsModal.addEventListener("pointerdown", (event) => {
 settingsLeaveMatchButton.addEventListener("click", () => {
   setSettingsModalVisible(false);
   leaveRoom();
+});
+expandLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(true));
+closeLeaderboardButton.addEventListener("click", () => setLeaderboardModalVisible(false));
+leaderboardModal.addEventListener("pointerdown", (event) => {
+  if (event.target === leaderboardModal) setLeaderboardModalVisible(false);
 });
 addCpuButton.addEventListener("click", () => spawnCpu());
 removeCpuButton.addEventListener("click", () => removeCpu());
@@ -754,12 +807,17 @@ window.addEventListener("keydown", (event) => {
     setSettingsModalVisible(false);
     return;
   }
+  if (event.code === "Escape" && leaderboardModalOpen) {
+    event.preventDefault();
+    setLeaderboardModalVisible(false);
+    return;
+  }
   if (event.code === "Escape" && controlsModalOpen) {
     event.preventDefault();
     setControlsModalVisible(false);
     return;
   }
-  if (controlsModalOpen || settingsModalOpen) return;
+  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen) return;
   if (isTextEntryTarget(event.target)) return;
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
@@ -934,10 +992,15 @@ async function createGame(): Promise<void> {
   if (createMissileInput.checked) powerups.push("missile");
   if (createLaserInput.checked) powerups.push("laser");
   const map = isArenaMapId(createMapSelect.value) ? createMapSelect.value : "classic";
+  const gameMode = createGameModeSelect.value === "top-score" ? "top-score" : "endless";
+  const scoreToWin = clampNumber(Math.round(Number(createScoreToWinInput.value) || 5), 1, 100);
+  createScoreToWinInput.value = String(scoreToWin);
   await joinRoom(createRoomCodeInput.value, {
     map,
     powerups,
     wormholes: createWormholesInput.checked,
+    gameMode,
+    scoreToWin,
   }, {
     isPublic: createPublicInput.checked,
     allowJoinInProgress: createJoinProgressInput.checked,
@@ -971,6 +1034,10 @@ function setupMultiplayerEvents(): void {
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
     showLobby();
     settingsButton.classList.add("hidden");
+    leaderboard.classList.add("hidden");
+    leaderboardModal.classList.add("hidden");
+    leaderboardModalOpen = false;
+    hideWinnerCelebration();
     settingsModal.classList.add("hidden");
     settingsModalOpen = false;
     clearRemotePilots();
@@ -1191,6 +1258,10 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
   settingsButton.classList.remove("hidden");
+  leaderboard.classList.remove("hidden");
+  playerScores.clear();
+  renderLeaderboard();
+  hideWinnerCelebration();
   practiceControls.classList.add("hidden");
   lobby.classList.add("hidden");
   clearChat();
@@ -1205,6 +1276,10 @@ function readClientGameSettings(value: unknown): GameSettings | null {
     map: value.map,
     powerups: value.powerups.filter(isPowerupType),
     wormholes: value.wormholes !== false,
+    gameMode: value.gameMode === "top-score" ? "top-score" : "endless",
+    scoreToWin: Number.isInteger(value.scoreToWin)
+      ? clampNumber(value.scoreToWin as number, 1, 100)
+      : 5,
   };
 }
 
@@ -1224,6 +1299,8 @@ function startOffline(): void {
     map: "classic",
     powerups: ["shield", "triple", "missile", "laser"],
     wormholes: true,
+    gameMode: "endless",
+    scoreToWin: 5,
   }, false);
   localId = "local";
   activeRoomCode = "";
@@ -1241,6 +1318,11 @@ function startOffline(): void {
   sessionPanel.classList.add("practice-session");
   sessionPanel.classList.remove("hidden");
   settingsButton.classList.add("hidden");
+  leaderboard.classList.add("hidden");
+  leaderboardModal.classList.add("hidden");
+  leaderboardModalOpen = false;
+  playerScores.clear();
+  hideWinnerCelebration();
   practiceControls.classList.remove("hidden");
   lobby.classList.add("hidden");
 }
@@ -1273,6 +1355,11 @@ function leaveRoom(): void {
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
   settingsButton.classList.add("hidden");
+  leaderboard.classList.add("hidden");
+  leaderboardModal.classList.add("hidden");
+  leaderboardModalOpen = false;
+  playerScores.clear();
+  hideWinnerCelebration();
   settingsModal.classList.add("hidden");
   settingsModalOpen = false;
   showLobby();
@@ -1402,6 +1489,8 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
     map: settings[0],
     powerups: enabledPowerups,
     wormholes: settings[2] === 1,
+    gameMode: settings[3] === 1 ? "top-score" : "endless",
+    scoreToWin: isFiniteNumber(settings[4]) ? clampNumber(settings[4], 1, 100) : 5,
   }, false);
 
   const firstSnapshot = !hasReceivedServerSnapshot;
@@ -1414,8 +1503,9 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   const seenShips = new Set<string>();
   for (const row of data.ships) {
     if (!isServerShipRow(row)) continue;
-    const [id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser, respawn, transit, _lastSequence, inputMask] = row;
+    const [id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser, respawn, transit, _lastSequence, inputMask, score] = row;
     seenShips.add(id);
+    playerScores.set(id, score);
     if (id === localId) {
       const mustSnap = firstSnapshot || respawnTimer > 0 || wormholeTransit !== null;
       if (mustSnap) {
@@ -1463,9 +1553,13 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   for (const id of [...remotePilots.keys()]) {
     if (!seenShips.has(id)) removeRemotePilot(id);
   }
+  for (const id of [...playerScores.keys()]) {
+    if (!seenShips.has(id)) playerScores.delete(id);
+  }
   currentRoomPlayerIds.clear();
   for (const id of seenShips) currentRoomPlayerIds.add(id);
   refreshCurrentRoster();
+  renderLeaderboard();
 
   const seenBullets = new Set<number>();
   for (const row of data.bullets) {
@@ -1547,11 +1641,13 @@ function processServerEvent(event: unknown): void {
     wormholeTransit = null;
     localVisual.group.visible = respawnTimer <= 0;
     arcadeAudio.wormholeExit();
+  } else if (kind === "win" && typeof event[1] === "string") {
+    showWinnerCelebration(event[1]);
   }
 }
 
 function isServerShipRow(value: unknown): value is [string, ...number[]] {
-  return Array.isArray(value) && value.length >= 15 && typeof value[0] === "string" && value.slice(1, 15).every(isFiniteNumber);
+  return Array.isArray(value) && value.length >= 16 && typeof value[0] === "string" && value.slice(1, 16).every(isFiniteNumber);
 }
 
 function isServerBulletRow(value: unknown): value is [number, string, WeaponType, number, number, number, number, number] {
@@ -1607,6 +1703,79 @@ function unknownEnemyName(id: string): string {
 function resetUnknownEnemyNumbers(): void {
   unknownEnemyNumbers.clear();
   unknownEnemyCounter = 0;
+}
+
+function leaderboardPlayerName(id: string): string {
+  return multiplayerDisplayName(id) ?? (id === localId ? "You" : unknownEnemyName(id));
+}
+
+function renderLeaderboard(): void {
+  const standings = [...playerScores.entries()].sort((first, second) => {
+    return second[1] - first[1] || leaderboardPlayerName(first[0]).localeCompare(leaderboardPlayerName(second[0]));
+  });
+  renderLeaderboardRows(leaderboardTopFive, standings.slice(0, 5));
+  renderLeaderboardRows(leaderboardAll, standings);
+}
+
+function renderLeaderboardRows(
+  target: HTMLOListElement,
+  standings: Array<[string, number]>,
+): void {
+  target.replaceChildren();
+  standings.forEach(([id, score], index) => {
+    const row = document.createElement("li");
+    const name = document.createElement("span");
+    const value = document.createElement("strong");
+    name.textContent = `${index + 1}. ${leaderboardPlayerName(id)}`;
+    value.textContent = String(score);
+    row.classList.toggle("local-player", id === localId);
+    row.append(name, value);
+    target.append(row);
+  });
+}
+
+function setLeaderboardModalVisible(visible: boolean): void {
+  leaderboardModalOpen = visible;
+  leaderboardModal.classList.toggle("hidden", !visible);
+  expandLeaderboardButton.setAttribute("aria-expanded", String(visible));
+  if (visible) {
+    heldKeys.clear();
+    resetGamepadInput();
+    updateInput();
+    renderLeaderboard();
+    closeLeaderboardButton.focus();
+  } else if (!leaderboard.classList.contains("hidden")) {
+    expandLeaderboardButton.focus();
+  }
+}
+
+function showWinnerCelebration(winnerId: string): void {
+  const name = leaderboardPlayerName(winnerId);
+  winnerMessage.textContent = `${name} Wins!`;
+  confetti.replaceChildren();
+  const colors = ["#69ddff", "#ff5577", "#ffd166", "#c77dff", "#7ee787", "#ffffff"];
+  for (let index = 0; index < 72; index += 1) {
+    const piece = document.createElement("i");
+    piece.style.setProperty("--x", `${Math.random() * 100}vw`);
+    piece.style.setProperty("--drift", `${(Math.random() - 0.5) * 240}px`);
+    piece.style.setProperty("--delay", `${Math.random() * 0.65}s`);
+    piece.style.setProperty("--duration", `${1.8 + Math.random() * 1.5}s`);
+    piece.style.setProperty("--color", colors[index % colors.length]);
+    confetti.append(piece);
+  }
+  winnerCelebration.classList.remove("hidden");
+  arcadeAudio.win();
+  window.clearTimeout(winnerCelebrationTimer);
+  winnerCelebrationTimer = window.setTimeout(() => {
+    winnerCelebration.classList.add("hidden");
+    confetti.replaceChildren();
+  }, 3600);
+}
+
+function hideWinnerCelebration(): void {
+  window.clearTimeout(winnerCelebrationTimer);
+  winnerCelebration.classList.add("hidden");
+  confetti.replaceChildren();
 }
 
 function appendChatMessage(senderId: string, senderName: string, text: string): void {
@@ -1891,6 +2060,8 @@ function broadcastGameSettings(): void {
     map: activeGameSettings.map,
     powerups: [...activeGameSettings.powerups],
     wormholes: activeGameSettings.wormholes,
+    gameMode: activeGameSettings.gameMode,
+    scoreToWin: activeGameSettings.scoreToWin,
   });
 }
 
@@ -1898,7 +2069,9 @@ function receiveGameSettings(data: Record<string, unknown>): void {
   if (!isArenaMapId(data.map) || !Array.isArray(data.powerups)) return;
   const powerups = data.powerups.filter(isPowerupType);
   const wormholes = typeof data.wormholes === "boolean" ? data.wormholes : true;
-  applyGameSettings({ map: data.map, powerups, wormholes });
+  const gameMode = data.gameMode === "top-score" ? "top-score" : "endless";
+  const scoreToWin = isFiniteNumber(data.scoreToWin) ? clampNumber(data.scoreToWin, 1, 100) : 5;
+  applyGameSettings({ map: data.map, powerups, wormholes, gameMode, scoreToWin });
   if (joined && portalsNet) {
     portalsNet.send({ kind: "powerup-sync-request" });
     portalsNet.send({ kind: "wormhole-sync-request" });
@@ -1914,12 +2087,20 @@ function applyGameSettings(settings: GameSettings, respawn = true): void {
   const unchanged =
     activeGameSettings.map === settings.map &&
     activeGameSettings.wormholes === settings.wormholes &&
+    activeGameSettings.gameMode === settings.gameMode &&
+    activeGameSettings.scoreToWin === settings.scoreToWin &&
     activeGameSettings.powerups.length === powerups.length &&
     activeGameSettings.powerups.every((type) => powerups.includes(type));
   if (unchanged) return;
 
   const mapChanged = activeMapId !== settings.map;
-  activeGameSettings = { map: settings.map, powerups, wormholes: settings.wormholes };
+  activeGameSettings = {
+    map: settings.map,
+    powerups,
+    wormholes: settings.wormholes,
+    gameMode: settings.gameMode,
+    scoreToWin: settings.scoreToWin,
+  };
   sectorName.textContent = settings.map === "classic"
     ? "CLASSIC"
     : settings.map === "crossroads"
@@ -2078,7 +2259,7 @@ function updateInput(): void {
 }
 
 function pollGamepad(): void {
-  if (controlsModalOpen || settingsModalOpen) {
+  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen) {
     resetGamepadInput();
     updateInput();
     return;
