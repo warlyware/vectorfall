@@ -1,8 +1,8 @@
 interface PortalsPlayer {
   id: string;
   playerId: string | null;
-  displayName: string;
-  avatarUrl: string;
+  displayName: string | null;
+  avatarUrl: string | null;
 }
 
 interface PortalsSession {
@@ -34,7 +34,7 @@ interface PortalsVoice {
 
 interface PortalsNet {
   join(options?: { channel?: string }): Promise<PortalsSession>;
-  leave(): void;
+  leave(): Promise<void>;
   send(data: unknown): void;
   players(): PortalsPlayer[];
   self(): PortalsPlayer | null;
@@ -46,6 +46,7 @@ interface PortalsNet {
     handler: (player: PortalsPlayer, players: PortalsPlayer[]) => void,
   ): void;
   on(event: "status", handler: (status: string) => void): void;
+  on(event: "state", handler: (key: string, value: unknown) => void): void;
   off(event: string, handler: (...args: never[]) => void): void;
 }
 

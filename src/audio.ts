@@ -1,4 +1,4 @@
-export type PowerupSound = "shield" | "triple";
+export type PowerupSound = "shield" | "triple" | "missile" | "laser";
 
 export class ArcadeAudio {
   private context: AudioContext | null = null;
@@ -20,6 +20,16 @@ export class ArcadeAudio {
     this.tone(760, 210, 0.085, "square", 0.22 * volume);
     this.tone(1180, 480, 0.045, "sawtooth", 0.07 * volume, 0.012);
     if (triple) this.tone(920, 260, 0.1, "square", 0.11 * volume, 0.025);
+  }
+
+  missileFire(volume = 1): void {
+    this.tone(210, 95, 0.16, "sawtooth", 0.16 * volume);
+    this.noise(0.11, 0.07 * volume, 160, 900);
+  }
+
+  laserFire(volume = 1): void {
+    this.tone(1680, 520, 0.075, "square", 0.17 * volume);
+    this.tone(2300, 980, 0.045, "sine", 0.08 * volume, 0.008);
   }
 
   ricochet(volume = 1): void {
@@ -56,7 +66,13 @@ export class ArcadeAudio {
   }
 
   powerup(type: PowerupSound, volume = 1): void {
-    const notes = type === "shield" ? [440, 660, 880, 1320] : [330, 495, 740, 990];
+    const notes = type === "shield"
+      ? [440, 660, 880, 1320]
+      : type === "triple"
+        ? [330, 495, 740, 990]
+        : type === "missile"
+          ? [220, 330, 550, 880]
+          : [620, 930, 1395, 1860];
     notes.forEach((frequency, index) => {
       this.tone(
         frequency,

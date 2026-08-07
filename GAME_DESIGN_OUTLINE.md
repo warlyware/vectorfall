@@ -1,4 +1,4 @@
-# Phase 0: Flight Laboratory
+# VECTORFALL — Phase 0
 
 ## Current scope
 
@@ -16,6 +16,7 @@ The sandbox includes:
 - synchronized arena powerups that spawn every 10–30 seconds;
 - shield and triple-cannon powerups available to local, CPU, and hosted-room players;
 - synchronized paired wormholes that spawn every 10–20 seconds and last 20 seconds;
+- Create Game configuration for arena map and enabled powerup types, synchronized to joining pilots;
 - room-code multiplayer using the hosted Portals SDK;
 - room text chat over the Portals relay and optional Portals voice chat;
 - interpolated remote ships and relayed projectile events;
