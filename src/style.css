@@ -328,13 +328,60 @@ dd {
 }
 
 .powerup-tray {
-  bottom: 54px;
-  left: 28px;
+  top: 116px;
+  right: 28px;
+  bottom: auto;
+  left: auto;
   width: min(300px, calc(50vw - 28px));
+  max-height: calc(100vh - 144px);
+  overflow-y: auto;
   color: #7890a5;
   font-size: 8px;
   letter-spacing: 0.11em;
   pointer-events: none;
+}
+
+.combat-log {
+  position: fixed;
+  bottom: 28px;
+  left: 28px;
+  z-index: 3;
+  display: grid;
+  width: min(440px, calc(100vw - 56px));
+  gap: 6px;
+  color: #7890a5;
+  font-size: 10px;
+  letter-spacing: 0.055em;
+  pointer-events: none;
+}
+
+.combat-log-entries {
+  display: grid;
+  gap: 5px;
+}
+
+.combat-log-entry {
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 9px;
+  border-left: 2px solid rgb(105 221 255 / 68%);
+  background: linear-gradient(90deg, rgb(5 14 23 / 88%), rgb(5 11 18 / 58%));
+  box-shadow: 0 4px 18px rgb(0 0 0 / 24%);
+  color: #8299aa;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  backdrop-filter: blur(3px);
+}
+
+.combat-log-entry strong {
+  color: #9fe8ff;
+  font-weight: 600;
+  text-shadow: 0 0 7px rgb(105 221 255 / 28%);
+}
+
+.combat-log-entry .combat-log-victim {
+  color: #ff91a7;
+  text-shadow: 0 0 7px rgb(255 85 119 / 24%);
 }
 
 .powerup-tray-heading {
@@ -1288,7 +1335,7 @@ kbd {
 .arcade-brand h1 {
   display: flex;
   justify-content: center;
-  gap: 0.1em;
+  gap: 0;
   margin: 0;
   color: transparent;
   font-family: Impact, Haettenschweiler, "Arial Black", sans-serif;
@@ -1316,10 +1363,6 @@ kbd {
   -webkit-background-clip: text;
   -webkit-text-stroke: 2px #c5f4ff;
   animation: chrome-shimmer 4.5s ease-in-out infinite alternate;
-}
-
-.arcade-brand h1 span:last-child {
-  -webkit-text-stroke-color: #ffb2eb;
 }
 
 .arcade-version {
@@ -1770,6 +1813,11 @@ kbd {
   .enemy-hud.timed-match {
     top: 106px;
   }
+
+  .powerup-tray {
+    top: 145px;
+    max-height: calc(100vh - 173px);
+  }
 }
 
 @media (max-width: 720px) {
@@ -2014,6 +2062,14 @@ kbd {
     width: calc(50vw - 27px);
     max-height: calc(100vh - 145px);
     overflow-y: auto;
+  }
+
+  .combat-log {
+    right: 18px;
+    bottom: max(168px, calc(env(safe-area-inset-bottom) + 154px));
+    left: 18px;
+    width: auto;
+    font-size: 9px;
   }
 
   .powerup-cards {

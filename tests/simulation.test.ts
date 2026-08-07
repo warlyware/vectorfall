@@ -45,6 +45,16 @@ describe("flight simulation", () => {
     expect(ship.energy).toBe(89);
   });
 
+  it("boosts forward without requiring thrust input", () => {
+    const ship = createShip();
+    const boostOnly = { ...idleInput, boost: true };
+
+    stepShip(ship, boostOnly, DEFAULT_FLIGHT_CONFIG, 1);
+
+    expect(ship.energy).toBe(72);
+    expect(Math.hypot(ship.velocity.x, ship.velocity.y)).toBeGreaterThan(0);
+  });
+
   it("retains overcharged energy until it is spent without regenerating above 100", () => {
     const ship = createShip();
     const boosting = { ...idleInput, thrust: true, boost: true };

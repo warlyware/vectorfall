@@ -130,6 +130,9 @@ app.innerHTML = `
       </article>
     </div>
   </section>
+  <section id="combat-log" class="combat-log hidden" aria-label="Combat event log" aria-live="polite">
+    <div id="combat-log-entries" class="combat-log-entries"></div>
+  </section>
   <aside id="diagnostics" class="diagnostics hidden">
     <div class="panel-heading"><span>FLIGHT TUNING</span><button id="reset-tuning">RESET</button></div>
     <div id="tuning-controls"></div>
@@ -271,7 +274,7 @@ app.innerHTML = `
     <div class="lobby-art" aria-hidden="true"></div>
     <div class="arcade-brand">
       <span class="arcade-kicker">WARLYWARE PRESENTS</span>
-      <h1 id="lobby-title"><span>VECTOR</span><span>FALL</span></h1>
+      <h1 id="lobby-title"><span>VECTORFALL</span></h1>
     </div>
     <div id="lobby-card" class="lobby-card" role="group" aria-label="Flight modes">
       <div id="lobby-main-menu" class="lobby-menu-view">
@@ -571,6 +574,7 @@ interface RemotePilot {
   thrusting: boolean;
   boosting: boolean;
   respawning: boolean;
+  spawnProtectionTimer: number;
   isCpu: boolean;
   cpuRespawnTimer: number;
   cpuWeaponCooldown: number;
@@ -614,6 +618,20 @@ interface ExplosionEffect {
   flashMaterial: THREE.MeshBasicMaterial;
   age: number;
   duration: number;
+}
+
+interface ScorePopupEffect {
+  sprite: THREE.Sprite;
+  material: THREE.SpriteMaterial;
+  anchor: Vec2;
+  followPlayerId: string | null;
+  age: number;
+  duration: number;
+}
+
+interface CombatLogMessage {
+  element: HTMLElement;
+  age: number;
 }
 
 let config: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG };
@@ -661,7 +679,10 @@ const laserBeamGeometry = new THREE.PlaneGeometry(1, 1);
 const explosionPixelGeometry = new THREE.PlaneGeometry(1, 1);
 const explosionColors = [0xffffff, 0xfff1a6, 0xffd166, 0xff8c42, 0xff5577, 0x69ddff];
 const explosions: ExplosionEffect[] = [];
+const scorePopups: ScorePopupEffect[] = [];
+const combatLogMessages: CombatLogMessage[] = [];
 const wormholeJumpEffects: WormholeJumpEffect[] = [];
+const spawnProtectionDuration = 1;
 const shieldCapacity = 100;
 const tripleShotDuration = 18;
 const homingMissileDuration = 7;
@@ -716,6 +737,7 @@ let showDiagnostics = false;
 let collidedThisFrame = false;
 let weaponCooldown = 0;
 let respawnTimer = 0;
+let spawnProtectionTimer = 0;
 let joined = false;
 let netConnected = false;
 let globalConnectionPromise: Promise<void> | null = null;
@@ -797,6 +819,8 @@ const energyOverchargeFill = getElement<HTMLElement>("energy-overcharge-fill");
 const playerHud = getElement<HTMLElement>("player-hud");
 const energyValue = getElement<HTMLElement>("energy-value");
 const powerupTray = getElement<HTMLElement>("powerup-tray");
+const combatLog = getElement<HTMLElement>("combat-log");
+const combatLogEntries = getElement<HTMLElement>("combat-log-entries");
 const shieldPowerupCard = getElement<HTMLElement>("shield-powerup-card");
 const shieldPowerupValue = getElement<HTMLOutputElement>("shield-powerup-value");
 const shieldPowerupFill = getElement<HTMLElement>("shield-powerup-fill");
@@ -1336,6 +1360,8 @@ function setupMultiplayerEvents(): void {
     settingsModalOpen = false;
     clearRemotePilots();
     clearExplosions();
+    clearScorePopups();
+    clearCombatLog();
     resetPowerupState();
     resetWormholeState();
     stopVoice();
@@ -1695,6 +1721,8 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   clearBullets();
   clearLaserBeams();
   clearExplosions();
+  clearScorePopups();
+  clearCombatLog();
   currentRoomPlayerIds.clear();
   currentRoomPlayerIds.add(localId);
   roomPilotNames.clear();
@@ -1773,6 +1801,8 @@ function startOffline(): void {
   activeRoom = "OFFLINE";
   clearRemotePilots();
   clearExplosions();
+  clearScorePopups();
+  clearCombatLog();
   resetPowerupState();
   resetWormholeState();
   respawnLocalShip();
@@ -1814,6 +1844,8 @@ function leaveRoom(): void {
   clearBullets();
   clearLaserBeams();
   clearExplosions();
+  clearScorePopups();
+  clearCombatLog();
   clearPowerups();
   clearGravityMines();
   clearWormholes();
@@ -2048,6 +2080,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
     const [
       id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser,
       phase, afterburner, reflector, respawn, transit, _lastSequence, inputMask, score, spectatorFlag,
+      protection = 0,
     ] = row;
     seenShips.add(id);
     playerScores.set(id, score);
@@ -2079,6 +2112,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       afterburnerTimer = clampNumber(afterburner, 0, afterburnerDuration);
       reflectorTimer = clampNumber(reflector, 0, reflectorDuration);
       respawnTimer = Math.max(0, respawn);
+      spawnProtectionTimer = Math.max(0, protection);
       if (transit > 0 && !wormholeTransit) {
         wormholeTransit = { start: { ...ship.position }, destination: { ...ship.position }, remaining: transit };
       } else if (transit <= 0) {
@@ -2098,8 +2132,9 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       afterburnerTimer: afterburner,
       reflectorTimer: reflector,
       thrusting: Boolean(inputMask & 1),
-      boosting: Boolean(inputMask & 1) && Boolean(inputMask & 16),
+      boosting: Boolean(inputMask & 16),
       respawning: respawn > 0,
+      spawnProtectionTimer: protection,
       transiting: transit > 0,
       spectator: spectatorFlag === 1,
     });
@@ -2187,7 +2222,10 @@ function processServerEvent(event: unknown): void {
   if (!Array.isArray(event) || typeof event[0] !== "string") return;
   const kind = event[0];
   if (kind === "death" && typeof event[1] === "string" && isFiniteNumber(event[2]) && isFiniteNumber(event[3])) {
-    spawnExplosion({ x: event[2], y: event[3] }, event[1] === localId);
+    const victimId = event[1];
+    const deathPosition = { x: event[2], y: event[3] };
+    spawnExplosion(deathPosition, victimId === localId);
+    showScoreChanges(victimId, typeof event[4] === "string" ? event[4] : null, deathPosition);
   } else if (kind === "fire" && typeof event[1] === "string" && isWeaponType(event[2])) {
     const pilot = event[1] === localId ? ship : remotePilots.get(event[1])?.state;
     playWeaponFireSound(event[2], event[3] === 3, pilot ? soundVolumeAt(pilot.position) : 0.45);
@@ -2229,7 +2267,9 @@ function processServerEvent(event: unknown): void {
 }
 
 function isServerShipRow(value: unknown): value is [string, ...number[]] {
-  return Array.isArray(value) && value.length >= 20 && typeof value[0] === "string" && value.slice(1, 20).every(isFiniteNumber);
+  return Array.isArray(value) && value.length >= 20 && typeof value[0] === "string" &&
+    value.slice(1, 20).every(isFiniteNumber) &&
+    (value.length < 21 || isFiniteNumber(value[20]));
 }
 
 function isServerBulletRow(value: unknown): value is [number, string, WeaponType, number, number, number, number, number] {
@@ -2556,6 +2596,9 @@ function updateRemoteState(fromId: string, data: Record<string, unknown>): void 
   pilot.thrusting = data.thrusting === true;
   pilot.boosting = data.boosting === true;
   pilot.respawning = data.respawning === true;
+  pilot.spawnProtectionTimer = isFiniteNumber(data.spawnProtectionTimer)
+    ? clampNumber(data.spawnProtectionTimer, 0, spawnProtectionDuration)
+    : pilot.spawnProtectionTimer;
   pilot.transiting = data.transiting === true;
   pilot.spectator = data.spectator === true;
   if (wasSpawned && pilot.respawning) spawnExplosion(pilot.state.position);
@@ -2899,8 +2942,9 @@ function broadcastState(): void {
     afterburnerTimer: roundNetworkValue(afterburnerTimer),
     reflectorTimer: roundNetworkValue(reflectorTimer),
     thrusting: input.thrust,
-    boosting: input.thrust && input.boost && ship.energy > 0,
+    boosting: input.boost && ship.energy > 0,
     respawning: respawnTimer > 0,
+    spawnProtectionTimer: roundNetworkValue(spawnProtectionTimer),
     transiting: wormholeTransit !== null,
   });
 }
@@ -2947,6 +2991,7 @@ function getOrCreateRemotePilot(id: string): RemotePilot {
     thrusting: false,
     boosting: false,
     respawning: false,
+    spawnProtectionTimer: 0,
     isCpu: false,
     cpuRespawnTimer: 0,
     cpuWeaponCooldown: 0,
@@ -2982,6 +3027,7 @@ function spawnCpu(): void {
     thrusting: false,
     boosting: false,
     respawning: false,
+    spawnProtectionTimer: spawnProtectionDuration,
     isCpu: true,
     cpuRespawnTimer: 0,
     cpuWeaponCooldown: 0,
@@ -3292,6 +3338,7 @@ function respawnLocalShip(): void {
   wormholeTransit = null;
   snapVisualToState(localVisual, ship);
   respawnTimer = 0;
+  spawnProtectionTimer = spawnProtectionDuration;
   weaponCooldown = 0;
   localVisual.group.visible = true;
   clearBullets();
@@ -3299,7 +3346,8 @@ function respawnLocalShip(): void {
   cameraTarget.set(ship.position.x, ship.position.y, 0);
 }
 
-function destroyLocalShip(): void {
+function destroyLocalShip(killerId: string | null = null): void {
+  showScoreChanges(localId, killerId, ship.position);
   spawnExplosion(ship.position, true);
   shipShield = 0;
   tripleShotTimer = 0;
@@ -3312,6 +3360,7 @@ function destroyLocalShip(): void {
   wormholeTransit = null;
   ship.energy = 0;
   respawnTimer = 1.25;
+  spawnProtectionTimer = 0;
   localVisual.group.visible = false;
   clearBullets();
   networkAccumulator = networkInterval;
@@ -3471,11 +3520,12 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
       arcadeAudio.reflect();
       return;
     }
+    if (spawnProtectionTimer > 0) return;
     const shielded = shipShield > 0;
     shipShield = applyDamage(ship, shipShield, weaponDamage("laser"));
     if (shielded) arcadeAudio.shieldHit();
     else arcadeAudio.hullHit();
-    if (ship.energy === 0) destroyLocalShip();
+    if (ship.energy === 0) destroyLocalShip(owner);
     return;
   }
 
@@ -3486,6 +3536,7 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
     arcadeAudio.reflect(hitVolume);
     return;
   }
+  if (pilot.spawnProtectionTimer > 0) return;
   if (!pilot.isCpu) {
     if (pilot.shield > 0) arcadeAudio.shieldHit(hitVolume);
     else arcadeAudio.hullHit(hitVolume);
@@ -3495,7 +3546,7 @@ function applyLaserHit(owner: string, start: Vec2, end: Vec2): void {
   pilot.shield = applyDamage(pilot.state, pilot.shield, weaponDamage("laser"));
   if (shielded) arcadeAudio.shieldHit(hitVolume);
   else arcadeAudio.hullHit(hitVolume);
-  if (pilot.state.energy === 0) destroyCpuPilot(pilot);
+  if (pilot.state.energy === 0) destroyCpuPilot(pilot, owner);
 }
 
 function segmentCircleHitDistance(
@@ -3521,7 +3572,8 @@ function segmentCircleHitDistance(
   return Math.sqrt(lengthSquared) * progress;
 }
 
-function destroyCpuPilot(pilot: RemotePilot): void {
+function destroyCpuPilot(pilot: RemotePilot, killerId: string | null = null): void {
+  showScoreChanges(findPilotId(pilot), killerId, pilot.state.position);
   spawnExplosion(pilot.state.position);
   pilot.shield = 0;
   pilot.tripleShotTimer = 0;
@@ -3534,6 +3586,7 @@ function destroyCpuPilot(pilot: RemotePilot): void {
   pilot.transiting = false;
   pilot.wormholeTransit = null;
   pilot.respawning = true;
+  pilot.spawnProtectionTimer = 0;
   pilot.cpuRespawnTimer = 1.25;
   pilot.visualReady = false;
   pilot.visual.group.visible = false;
@@ -3790,13 +3843,13 @@ function explodeGravityMine(mine: GravityMine): void {
     mine.owner !== localId && respawnTimer === 0 && !wormholeTransit && phaseTimer <= 0
   ) {
     const distance = Math.sqrt(distanceSquared(mine.position, ship.position));
-    if (distance < gravityMineBlastRadius) {
+    if (distance < gravityMineBlastRadius && spawnProtectionTimer <= 0) {
       shipShield = applyDamage(
         ship,
         shipShield,
         gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
       );
-      if (ship.energy === 0) destroyLocalShip();
+      if (ship.energy === 0) destroyLocalShip(mine.owner);
     }
   }
   for (const [pilotId, pilot] of remotePilots) {
@@ -3805,13 +3858,13 @@ function explodeGravityMine(mine: GravityMine): void {
       pilot.phaseTimer > 0
     ) continue;
     const distance = Math.sqrt(distanceSquared(mine.position, pilot.state.position));
-    if (distance >= gravityMineBlastRadius) continue;
+    if (distance >= gravityMineBlastRadius || pilot.spawnProtectionTimer > 0) continue;
     pilot.shield = applyDamage(
       pilot.state,
       pilot.shield,
       gravityMineDamage * (1 - distance / gravityMineBlastRadius * 0.45),
     );
-    if (pilot.state.energy === 0) destroyCpuPilot(pilot);
+    if (pilot.state.energy === 0) destroyCpuPilot(pilot, mine.owner);
   }
 }
 
@@ -5179,6 +5232,160 @@ function clearExplosions(): void {
   cameraShake = 0;
 }
 
+function showScoreChanges(victimId: string, killerId: string | null, deathPosition: Vec2): void {
+  spawnScorePopup("-1", 0xff5577, deathPosition);
+  if (!killerId || killerId === victimId) return;
+  appendKillLogMessage(killerId, victimId);
+  const killerPosition = scorePopupPlayerPosition(killerId);
+  if (!killerPosition) return;
+  spawnScorePopup("+1", 0x63ffad, killerPosition, killerId);
+}
+
+function appendKillLogMessage(killerId: string, victimId: string): void {
+  const entry = document.createElement("div");
+  entry.className = "combat-log-entry";
+
+  const killer = document.createElement("strong");
+  killer.textContent = combatLogPlayerName(killerId);
+  const action = document.createElement("span");
+  action.textContent = " destroyed ";
+  const victim = document.createElement("strong");
+  victim.className = "combat-log-victim";
+  victim.textContent = combatLogPlayerName(victimId);
+  entry.append(killer, action, victim);
+
+  combatLogEntries.append(entry);
+  combatLogMessages.push({ element: entry, age: 0 });
+  while (combatLogMessages.length > 10) {
+    combatLogMessages.shift()?.element.remove();
+  }
+  combatLog.classList.remove("hidden");
+}
+
+function combatLogPlayerName(id: string): string {
+  if (id === localId) return localPilotDisplayName();
+  const pilot = remotePilots.get(id);
+  if (pilot?.isCpu) return `CPU ${id.replace("cpu-", "")}`;
+  return multiplayerDisplayName(id) ?? unknownEnemyName(id);
+}
+
+function updateCombatLog(deltaSeconds: number): void {
+  for (let index = combatLogMessages.length - 1; index >= 0; index -= 1) {
+    const message = combatLogMessages[index];
+    message.age += deltaSeconds;
+    const fade = 1 - THREE.MathUtils.clamp((message.age - 10) / 1, 0, 1);
+    message.element.style.opacity = String(fade);
+    message.element.style.transform = `translateY(${(1 - fade) * -4}px)`;
+    if (message.age < 11) continue;
+    message.element.remove();
+    combatLogMessages.splice(index, 1);
+  }
+  combatLog.classList.toggle("hidden", combatLogMessages.length === 0);
+}
+
+function clearCombatLog(): void {
+  combatLogMessages.length = 0;
+  combatLogEntries.replaceChildren();
+  combatLog.classList.add("hidden");
+}
+
+function spawnScorePopup(
+  label: "+1" | "-1",
+  color: number,
+  anchor: Vec2,
+  followPlayerId: string | null = null,
+): void {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 80;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const cssColor = `#${color.toString(16).padStart(6, "0")}`;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.font = "800 54px SFMono-Regular, Consolas, monospace";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.lineJoin = "round";
+  context.lineWidth = 8;
+  context.strokeStyle = "rgba(2, 8, 14, 0.92)";
+  context.strokeText(label, canvas.width / 2, canvas.height / 2);
+  context.shadowColor = cssColor;
+  context.shadowBlur = 14;
+  context.fillStyle = cssColor;
+  context.fillText(label, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.renderOrder = 110;
+  scene.add(sprite);
+  scorePopups.push({
+    sprite,
+    material,
+    anchor: { ...anchor },
+    followPlayerId,
+    age: 0,
+    duration: 0.9,
+  });
+}
+
+function updateScorePopups(deltaSeconds: number): void {
+  for (let index = scorePopups.length - 1; index >= 0; index -= 1) {
+    const popup = scorePopups[index];
+    popup.age += deltaSeconds;
+    if (popup.followPlayerId) {
+      const position = scorePopupPlayerPosition(popup.followPlayerId);
+      if (position) {
+        popup.anchor.x = position.x;
+        popup.anchor.y = position.y;
+      }
+    }
+
+    const progress = THREE.MathUtils.clamp(popup.age / popup.duration, 0, 1);
+    const inverseZoom = 1 / camera.zoom;
+    const rise = (42 + 30 * (1 - (1 - progress) ** 3)) * inverseZoom;
+    const appear = THREE.MathUtils.clamp(popup.age / 0.1, 0, 1);
+    const fade = 1 - THREE.MathUtils.clamp((progress - 0.48) / 0.52, 0, 1);
+    const scale = (0.72 + appear * 0.28) * inverseZoom;
+    popup.sprite.position.set(popup.anchor.x, popup.anchor.y + rise, 5);
+    popup.sprite.scale.set(58 * scale, 36 * scale, 1);
+    popup.material.opacity = fade;
+
+    if (popup.age >= popup.duration) removeScorePopup(index);
+  }
+}
+
+function scorePopupPlayerPosition(id: string): Vec2 | null {
+  if (id === localId) {
+    return { x: localVisual.group.position.x, y: localVisual.group.position.y };
+  }
+  const pilot = remotePilots.get(id);
+  if (!pilot) return null;
+  return { x: pilot.visual.group.position.x, y: pilot.visual.group.position.y };
+}
+
+function removeScorePopup(index: number): void {
+  const popup = scorePopups[index];
+  scene.remove(popup.sprite);
+  popup.material.map?.dispose();
+  popup.material.dispose();
+  scorePopups.splice(index, 1);
+}
+
+function clearScorePopups(): void {
+  for (let index = scorePopups.length - 1; index >= 0; index -= 1) {
+    removeScorePopup(index);
+  }
+}
+
 function togglePause(): void {
   paused = !paused;
   pausedOverlay.classList.toggle("hidden", !paused);
@@ -5372,6 +5579,9 @@ function simulateFixedStep(): void {
     renderOfflineRoundCountdown();
     return;
   }
+  if (respawnTimer <= 0) {
+    spawnProtectionTimer = Math.max(0, spawnProtectionTimer - fixedStep);
+  }
   if (respawnTimer > 0) {
     respawnTimer = Math.max(0, respawnTimer - fixedStep);
     if (respawnTimer === 0) respawnLocalShip();
@@ -5466,19 +5676,23 @@ function simulateFixedStep(): void {
       reflectBulletLocally(bullet, localId, ship);
       arcadeAudio.reflect();
       reflected = true;
+    } else if (hitLocal && spawnProtectionTimer > 0) {
+      // Spawn protection absorbs the hit without damage or impact feedback.
     } else if (hitLocal) {
       const shielded = shipShield > 0;
       shipShield = applyDamage(ship, shipShield, weaponDamage(bullet.weapon));
       if (shielded) arcadeAudio.shieldHit();
       else arcadeAudio.hullHit();
       if (ship.energy === 0) {
-        destroyLocalShip();
+        destroyLocalShip(bullet.state.owner);
         return;
       }
     } else if (hitRemotePilot?.reflectorTimer && hitRemotePilot.reflectorTimer > 0) {
       reflectBulletLocally(bullet, findPilotId(hitRemotePilot), hitRemotePilot.state);
       arcadeAudio.reflect(soundVolumeAt(hitRemotePilot.state.position));
       reflected = true;
+    } else if (hitRemotePilot && hitRemotePilot.spawnProtectionTimer > 0) {
+      // Spawn protection absorbs the hit without damage or impact feedback.
     } else if (hitRemotePilot?.isCpu) {
       const shielded = hitRemotePilot.shield > 0;
       hitRemotePilot.shield = applyDamage(
@@ -5490,7 +5704,7 @@ function simulateFixedStep(): void {
       if (shielded) arcadeAudio.shieldHit(hitVolume);
       else arcadeAudio.hullHit(hitVolume);
       if (hitRemotePilot.state.energy === 0) {
-        destroyCpuPilot(hitRemotePilot);
+        destroyCpuPilot(hitRemotePilot, bullet.state.owner);
       }
     } else if (hitRemotePilot) {
       const hitVolume = soundVolumeAt(hitRemotePilot.state.position) * 0.72;
@@ -5614,10 +5828,13 @@ function stepCpuPilots(): void {
         snapVisualToState(pilot.visual, pilot.state);
         pilot.visualReady = true;
         pilot.respawning = false;
+        pilot.spawnProtectionTimer = spawnProtectionDuration;
         pilot.visual.group.visible = true;
       }
       continue;
     }
+
+    pilot.spawnProtectionTimer = Math.max(0, pilot.spawnProtectionTimer - fixedStep);
 
     if (pilot.transiting) {
       pilot.thrusting = false;
@@ -5634,7 +5851,7 @@ function stepCpuPilots(): void {
 
     const command = computeCpuCommand(pilot.state, target, config);
     pilot.thrusting = command.input.thrust;
-    pilot.boosting = command.input.boost;
+    pilot.boosting = command.input.boost && pilot.state.energy > 0;
     stepShip(
       pilot.state,
       command.input,
@@ -5762,6 +5979,7 @@ function updateEnemyEnergyHud(): void {
 
 function renderWorld(frameDelta: number): void {
   const renderTime = performance.now() * 0.001;
+  restoreShipSpawnProtectionOpacity(localVisual);
   localVisual.group.position.set(renderedLocalPosition.x, renderedLocalPosition.y, 1);
   localVisual.group.rotation.z = renderedLocalAngle;
   localVisual.group.visible = !localSpectator && respawnTimer === 0 && !wormholeTransit;
@@ -5774,16 +5992,18 @@ function renderWorld(frameDelta: number): void {
   );
   updateShieldVisual(localVisual, shipShield);
   updateShipPowerupVisuals(localVisual, phaseTimer, reflectorTimer, renderTime);
-  const boosting = input.boost && input.thrust && ship.energy > 0 && !paused;
+  const boosting = input.boost && ship.energy > 0 && !paused;
   updateThrusterVisual(
     localVisual,
-    input.thrust && !paused && respawnTimer === 0 && !wormholeTransit,
+    (input.thrust || boosting) && !paused && respawnTimer === 0 && !wormholeTransit,
     boosting || afterburnerTimer > 0,
     renderTime,
   );
+  applyShipSpawnProtectionOpacity(localVisual, spawnProtectionTimer, renderTime);
 
   const interpolation = 1 - Math.exp(-12 * frameDelta);
   for (const [id, pilot] of remotePilots) {
+    restoreShipSpawnProtectionOpacity(pilot.visual);
     pilot.visual.group.position.x +=
       (pilot.state.position.x - pilot.visual.group.position.x) * interpolation;
     pilot.visual.group.position.y +=
@@ -5799,12 +6019,13 @@ function renderWorld(frameDelta: number): void {
     );
     updateThrusterVisual(
       pilot.visual,
-      pilot.thrusting && !pilot.respawning && !pilot.transiting && !paused,
+      (pilot.thrusting || pilot.boosting) && !pilot.respawning && !pilot.transiting && !paused,
       pilot.boosting || pilot.afterburnerTimer > 0,
       renderTime,
     );
     pilot.visual.group.visible = pilot.visualReady && !pilot.spectator &&
       !pilot.respawning && !pilot.transiting;
+    applyShipSpawnProtectionOpacity(pilot.visual, pilot.spawnProtectionTimer, renderTime);
     updateShipNameplate(
       pilot.visual,
       pilot.isCpu ? `CPU ${id.replace("cpu-", "")}` : multiplayerDisplayName(id) ?? unknownEnemyName(id),
@@ -5822,6 +6043,8 @@ function renderWorld(frameDelta: number): void {
   }
 
   if (!paused) updateExplosions(frameDelta);
+  if (!paused) updateScorePopups(frameDelta);
+  updateCombatLog(frameDelta);
   if (!paused) updateLaserBeams(frameDelta);
   if (!paused) updatePowerupVisuals(frameDelta);
   if (!paused) updateGravityMineVisuals(frameDelta);
@@ -5901,6 +6124,53 @@ function renderWorld(frameDelta: number): void {
   renderer.render(scene, camera);
 }
 
+function forEachShipMaterial(visual: ShipVisual, callback: (material: THREE.Material) => void): void {
+  visual.group.traverse((object) => {
+    if (
+      !(object instanceof THREE.Mesh) &&
+      !(object instanceof THREE.Line) &&
+      !(object instanceof THREE.Points)
+    ) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) callback(material);
+  });
+}
+
+function restoreShipSpawnProtectionOpacity(visual: ShipVisual): void {
+  const previousOpacity = visual.group.userData.spawnProtectionOpacity as number | undefined;
+  if (previousOpacity === undefined || previousOpacity === 1) return;
+  forEachShipMaterial(visual, (material) => {
+    material.opacity /= previousOpacity;
+    const originalTransparency = material.userData.spawnProtectionOriginalTransparency;
+    if (typeof originalTransparency === "boolean" && material.transparent !== originalTransparency) {
+      material.transparent = originalTransparency;
+      material.needsUpdate = true;
+    }
+  });
+  visual.group.userData.spawnProtectionOpacity = 1;
+}
+
+function applyShipSpawnProtectionOpacity(
+  visual: ShipVisual,
+  timer: number,
+  renderTime: number,
+): void {
+  // ~5.2 state changes per second keeps the arcade blink readable without flickering.
+  const opacity = timer > 0 && Math.floor(renderTime * 5.2) % 2 !== 0 ? 0.4 : 1;
+  if (opacity === 1) return;
+  forEachShipMaterial(visual, (material) => {
+    if (typeof material.userData.spawnProtectionOriginalTransparency !== "boolean") {
+      material.userData.spawnProtectionOriginalTransparency = material.transparent;
+    }
+    material.opacity *= opacity;
+    if (!material.transparent) {
+      material.transparent = true;
+      material.needsUpdate = true;
+    }
+  });
+  visual.group.userData.spawnProtectionOpacity = opacity;
+}
+
 function updatePowerupTray(): void {
   const inSession = joined || offline;
   const shieldActive = inSession && shipShield > 0;
@@ -5926,7 +6196,6 @@ function updatePowerupTray(): void {
   gravityPowerupCard.classList.toggle("hidden", !gravityActive);
   reflectorPowerupCard.classList.toggle("hidden", !reflectorActive);
   chatPanel.classList.toggle("powerups-active", anyActive);
-
   if (shieldActive) {
     const shieldPercent = THREE.MathUtils.clamp(shipShield / shieldCapacity, 0, 1) * 100;
     shieldPowerupValue.textContent = `${Math.ceil(shipShield)} HP`;
@@ -6377,12 +6646,12 @@ function updateShipNameplate(
   setShipHealthbarEnergy(visual.healthbar, energy);
   const inverseZoom = 1 / camera.zoom;
   visual.nameplate.scale.set(216 * inverseZoom, 40.5 * inverseZoom, 1);
-  visual.nameplate.position.set(position.x, position.y + 14 + 24 * inverseZoom, 4);
+  visual.nameplate.position.set(position.x, position.y + 24 + 24 * inverseZoom, 4);
   visual.nameplate.visible = showPlayerNames && visual.group.visible;
   visual.healthbar.scale.set(78 * inverseZoom, 9.75 * inverseZoom, 1);
   visual.healthbar.position.set(
     position.x,
-    position.y + 14 + (showPlayerNames ? 11 : 5) * inverseZoom,
+    position.y + 18 + (showPlayerNames ? 11 : 5) * inverseZoom,
     4,
   );
   visual.healthbar.visible = visual.group.visible;

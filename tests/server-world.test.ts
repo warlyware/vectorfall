@@ -100,6 +100,41 @@ describe("authoritative server world", () => {
     expect(world.takeSnapshot().ships[0][6]).toBe(95);
   });
 
+  it("protects newly spawned pilots from damage for one second", () => {
+    const world = new ServerWorld();
+    world.configure({ map: "open", powerups: [], wormholes: false });
+    world.addPlayer("attacker", 0);
+    world.addPlayer("protected", 0);
+    world.takeSnapshot();
+    const attacker = world.players.get("attacker")!;
+    const protectedPilot = world.players.get("protected")!;
+    attacker.state.position = { x: 0, y: 0 };
+    attacker.state.velocity = { x: 0, y: 0 };
+    attacker.state.angle = 0;
+    protectedPilot.state.position = { x: 36, y: 0 };
+    protectedPilot.state.velocity = { x: 0, y: 0 };
+    protectedPilot.state.energy = 1;
+
+    world.setInput("attacker", { q: 1, m: 0, f: true }, 0);
+    world.step(0.1, 100);
+    expect(protectedPilot.state.energy).toBeGreaterThan(1);
+    expect(protectedPilot.respawnTimer).toBe(0);
+    expect(world.takeSnapshot().ships.find((ship) => ship[0] === "protected")?.[20]).toBeGreaterThan(0.8);
+
+    world.setInput("attacker", { q: 2, m: 0, f: false }, 100);
+    advance(world, 1.1, 100);
+    attacker.state.position = { x: 0, y: 0 };
+    attacker.state.velocity = { x: 0, y: 0 };
+    attacker.state.angle = 0;
+    protectedPilot.state.position = { x: 36, y: 0 };
+    protectedPilot.state.velocity = { x: 0, y: 0 };
+    protectedPilot.state.energy = 1;
+    world.setInput("attacker", { q: 3, m: 0, f: true }, 1_200);
+    world.step(0.1, 1_300);
+
+    expect(protectedPilot.respawnTimer).toBeGreaterThan(0);
+  });
+
   it("keeps phase-shifted pilots intangible to projectiles", () => {
     const world = new ServerWorld();
     world.configure({ map: "open", powerups: [], wormholes: false });
@@ -115,6 +150,7 @@ describe("authoritative server world", () => {
     phased.state.velocity = { x: 0, y: 0 };
     phased.state.energy = 100;
     phased.phaseTimer = 1;
+    phased.spawnProtectionTimer = 0;
     world.setInput("attacker", { q: 1, m: 0, f: true }, 0);
     world.step(0.1, 100);
 
@@ -158,6 +194,7 @@ describe("authoritative server world", () => {
     reflector.state.velocity = { x: 0, y: 0 };
     reflector.state.energy = 100;
     reflector.reflectorTimer = 1;
+    reflector.spawnProtectionTimer = 0;
     world.setInput("attacker", { q: 1, m: 0, f: true }, 0);
     world.step(0.1, 100);
 
@@ -178,6 +215,7 @@ describe("authoritative server world", () => {
     victim.state.position = { x: 80, y: 0 };
     victim.state.velocity = { x: 0, y: 0 };
     victim.state.energy = 100;
+    victim.spawnProtectionTimer = 0;
     world.mines.set(1, { id: 1, owner: "owner", position: { x: 0, y: 0 }, timer: 0.05 });
     world.step(0.1, 100);
 
@@ -257,6 +295,7 @@ describe("authoritative server world", () => {
     victim.state.position = { x: 36, y: 0 };
     victim.state.velocity = { x: 0, y: 0 };
     victim.state.energy = 1;
+    victim.spawnProtectionTimer = 0;
     world.setInput("winner", { q: 1, m: 0, f: true }, 0);
     world.step(0.1, 100);
 
@@ -304,6 +343,7 @@ describe("authoritative server world", () => {
     victim.state.position = { x: 36, y: 0 };
     victim.state.velocity = { x: 0, y: 0 };
     victim.state.energy = 1;
+    victim.spawnProtectionTimer = 0;
     world.setInput("attacker", { q: 1, m: 0, f: true }, 0);
     world.step(0.1, 100);
 
@@ -367,6 +407,7 @@ describe("authoritative server world", () => {
     bravo.state.position = { x: 36, y: 0 };
     bravo.state.velocity = { x: 0, y: 0 };
     bravo.state.energy = 1;
+    bravo.spawnProtectionTimer = 0;
     world.setInput("alpha", { q: 1, m: 0, f: true }, 35_000);
     world.step(0.1, 35_100);
 

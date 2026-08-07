@@ -63,6 +63,7 @@ interface ServerPlayer {
   reflectorTimer: number;
   weaponCooldown: number;
   respawnTimer: number;
+  spawnProtectionTimer: number;
   wormholeCooldown: number;
   transit: { destination: Vec2; remaining: number } | null;
   score: number;
@@ -105,7 +106,7 @@ export interface ServerSnapshot {
   ships: Array<[
     string, number, number, number, number, number, number, number,
     number, number, number, number, number, number, number, number,
-    number, number, number, number,
+    number, number, number, number, number,
   ]>;
   bullets: Array<[number, string, WeaponType, number, number, number, number, number]>;
   powerups: Array<[number, PowerupType, number, number]>;
@@ -115,6 +116,7 @@ export interface ServerSnapshot {
 }
 
 const config = DEFAULT_FLIGHT_CONFIG;
+const spawnProtectionDuration = 1;
 const afterburnerFlightConfig: FlightConfig = {
   ...config,
   thrust: config.thrust * 1.55,
@@ -277,6 +279,7 @@ export class ServerWorld {
       reflectorTimer: 0,
       weaponCooldown: 0,
       respawnTimer: 0,
+      spawnProtectionTimer: spawnProtectionDuration,
       wormholeCooldown: 0,
       transit: null,
       score: 0,
@@ -358,6 +361,7 @@ export class ServerWorld {
         round(player.phaseTimer), round(player.afterburnerTimer), round(player.reflectorTimer),
         round(player.respawnTimer), round(player.transit?.remaining ?? 0),
         player.lastSequence, inputMask(player.input), player.score, Number(player.spectator),
+        round(player.spawnProtectionTimer),
       ]),
       bullets: this.bullets.map((bullet) => [
         bullet.id, bullet.state.owner, bullet.weapon,
@@ -422,6 +426,7 @@ export class ServerWorld {
       if (player.respawnTimer === 0) this.respawn(player);
       return;
     }
+    player.spawnProtectionTimer = Math.max(0, player.spawnProtectionTimer - fixedStep);
     if (player.transit) {
       player.transit.remaining = Math.max(0, player.transit.remaining - fixedStep);
       if (player.transit.remaining === 0) {
@@ -558,13 +563,14 @@ export class ServerWorld {
   }
 
   private damage(player: ServerPlayer, damage: number, attackerId: string): void {
-    if (player.spectator || player.phaseTimer > 0) return;
+    if (player.spectator || player.phaseTimer > 0 || player.spawnProtectionTimer > 0) return;
     const absorbed = Math.min(player.shield, damage);
     player.shield -= absorbed;
     player.state.energy = Math.max(0, player.state.energy - (damage - absorbed));
     this.events.push(["hit", player.id, round(damage), Number(absorbed > 0)]);
     if (player.state.energy > 0) return;
     player.respawnTimer = 1.25;
+    player.spawnProtectionTimer = 0;
     player.input = emptyInput();
     player.firing = false;
     player.transit = null;
@@ -708,6 +714,7 @@ export class ServerWorld {
     player.afterburnerTimer = 0;
     player.reflectorTimer = 0;
     player.weaponCooldown = 0;
+    player.spawnProtectionTimer = spawnProtectionDuration;
     player.wormholeCooldown = 0;
     this.events.push(["spawn", player.id, round(spawn.position.x), round(spawn.position.y)]);
   }

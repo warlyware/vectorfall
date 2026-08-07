@@ -206,11 +206,11 @@ export function stepShip(
   const turn = Number(input.turnLeft) - Number(input.turnRight);
   ship.angle += turn * config.turnSpeed * deltaSeconds;
 
-  const canBoost = input.boost && input.thrust && ship.energy > 0;
+  const canBoost = input.boost && ship.energy > 0;
   const forward = { x: Math.cos(ship.angle), y: Math.sin(ship.angle) };
   let acceleration = 0;
 
-  if (input.thrust) {
+  if (input.thrust || canBoost) {
     acceleration += config.thrust * (canBoost ? config.boostMultiplier : 1);
   }
   ship.velocity.x += forward.x * acceleration * deltaSeconds;
