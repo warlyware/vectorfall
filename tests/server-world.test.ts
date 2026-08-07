@@ -102,8 +102,11 @@ describe("authoritative server world", () => {
 
     const winningSnapshot = world.takeSnapshot();
     expect(winningSnapshot.events).toContainEqual(["win", "winner"]);
+    expect(winningSnapshot.round[0]).toBe(2);
+    expect(winningSnapshot.round[1]).toBeGreaterThan(14.8);
+    expect(winningSnapshot.round[1]).toBeLessThanOrEqual(15);
     expect(winningSnapshot.ships.find((ship) => ship[0] === "winner")?.[15]).toBe(1);
-    for (let frame = 1; frame <= 205; frame += 1) world.step(0.1, 100 + frame * 100);
+    for (let frame = 1; frame <= 155; frame += 1) world.step(0.1, 100 + frame * 100);
     expect(world.takeSnapshot().ships.every((ship) => ship[15] === 0)).toBe(true);
   });
 

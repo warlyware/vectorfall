@@ -155,6 +155,10 @@ app.innerHTML = `
         <div><span class="eyebrow">MATCH STANDINGS</span><h2 id="leaderboard-title">LEADERBOARD</h2></div>
         <button id="close-leaderboard" class="close-controls" type="button" aria-label="Close leaderboard">×</button>
       </div>
+      <div id="leaderboard-countdown" class="leaderboard-countdown hidden" aria-live="polite">
+        <span id="leaderboard-countdown-label">NEXT MATCH IN</span>
+        <strong id="leaderboard-countdown-value">15</strong>
+      </div>
       <ol id="leaderboard-all" class="leaderboard-all"></ol>
     </div>
   </section>
@@ -201,9 +205,9 @@ app.innerHTML = `
         <label for="create-game-mode">GAME MODE</label>
         <select id="create-game-mode">
           <option value="endless">ENDLESS</option>
-          <option value="top-score">TOP SCORE</option>
+          <option value="top-score" selected>TOP SCORE</option>
         </select>
-        <div id="score-to-win-field" class="score-to-win-field hidden">
+        <div id="score-to-win-field" class="score-to-win-field">
           <label for="create-score-to-win">POINTS NEEDED TO WIN</label>
           <input id="create-score-to-win" type="number" min="1" max="100" step="1" value="5" />
         </div>
@@ -691,6 +695,9 @@ const expandLeaderboardButton = getElement<HTMLButtonElement>("expand-leaderboar
 const leaderboardModal = getElement<HTMLElement>("leaderboard-modal");
 const closeLeaderboardButton = getElement<HTMLButtonElement>("close-leaderboard");
 const leaderboardAll = getElement<HTMLOListElement>("leaderboard-all");
+const leaderboardCountdown = getElement<HTMLElement>("leaderboard-countdown");
+const leaderboardCountdownLabel = getElement<HTMLElement>("leaderboard-countdown-label");
+const leaderboardCountdownValue = getElement<HTMLElement>("leaderboard-countdown-value");
 const winnerCelebration = getElement<HTMLElement>("winner-celebration");
 const winnerMessage = getElement<HTMLElement>("winner-message");
 const confetti = getElement<HTMLElement>("confetti");
@@ -1806,8 +1813,11 @@ function renderRoundCountdown(): void {
     return;
   }
   const intermission = serverRoundPhase === "intermission";
-  roundCountdownLabel.textContent = intermission ? "NEXT MATCH IN" : "MATCH STARTS IN";
-  roundCountdownValue.textContent = String(Math.max(1, Math.ceil(serverRoundTimer)));
+  const label = intermission ? "NEXT MATCH IN" : "MATCH STARTS IN";
+  const value = String(Math.max(1, Math.ceil(serverRoundTimer)));
+  roundCountdownLabel.textContent = label;
+  roundCountdownValue.textContent = value;
+  showLeaderboardCountdown(label, value);
   countdownLeaderboardButton.classList.remove("hidden");
   roundCountdown.classList.remove("hidden");
 }
@@ -1817,14 +1827,24 @@ function renderOfflineRoundCountdown(): void {
     hideRoundCountdown();
     return;
   }
-  roundCountdownLabel.textContent = "MATCH STARTS IN";
-  roundCountdownValue.textContent = String(Math.max(1, Math.ceil(offlineRoundTimer)));
+  const label = "MATCH STARTS IN";
+  const value = String(Math.max(1, Math.ceil(offlineRoundTimer)));
+  roundCountdownLabel.textContent = label;
+  roundCountdownValue.textContent = value;
+  showLeaderboardCountdown(label, value);
   countdownLeaderboardButton.classList.add("hidden");
   roundCountdown.classList.remove("hidden");
 }
 
+function showLeaderboardCountdown(label: string, value: string): void {
+  leaderboardCountdownLabel.textContent = label;
+  leaderboardCountdownValue.textContent = value;
+  leaderboardCountdown.classList.remove("hidden");
+}
+
 function hideRoundCountdown(): void {
   roundCountdown.classList.add("hidden");
+  leaderboardCountdown.classList.add("hidden");
   countdownLeaderboardButton.classList.add("hidden");
 }
 

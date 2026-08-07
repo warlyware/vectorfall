@@ -101,6 +101,7 @@ const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
 const maxPowerups = 4;
 const maxBullets = 64;
+const roundIntermissionDuration = 15;
 const wormholeRadius = 28;
 const wormholeLifetime = 20;
 const wormholeFadeIn = 1.25;
@@ -496,7 +497,7 @@ export class ServerWorld {
   private beginRoundIntermission(): void {
     this.roundEnded = true;
     this.roundPhase = "intermission";
-    this.roundTimer = 20;
+    this.roundTimer = roundIntermissionDuration;
     this.bullets.length = 0;
     for (const player of this.players.values()) {
       player.input = emptyInput();
