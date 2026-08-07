@@ -28,12 +28,13 @@ describe("authoritative server world", () => {
     world.addPlayer("pilot", 0);
     const before = world.takeSnapshot().ships[0];
 
-    world.setInput("pilot", { q: 7, m: 1, f: false }, 0);
-    for (let frame = 1; frame <= 20; frame += 1) world.step(0.05, frame * 50);
+    world.setInput("pilot", { q: 7, m: 17, f: false }, 0);
+    for (let frame = 1; frame <= 10; frame += 1) world.step(0.05, frame * 50);
     const after = world.takeSnapshot().ships[0];
 
     expect(Math.hypot(after[1] - before[1], after[2] - before[2])).toBeGreaterThan(1);
     expect(after[13]).toBe(7);
+    expect(after[14]).toBe(17);
   });
 
   it("rejects stale input and caps a match at eight pilots", () => {

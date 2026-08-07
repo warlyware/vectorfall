@@ -76,7 +76,7 @@ export interface ServerSnapshot {
   settings: [ArenaMapId, number, number];
   ships: Array<[
     string, number, number, number, number, number, number, number,
-    number, number, number, number, number, number,
+    number, number, number, number, number, number, number,
   ]>;
   bullets: Array<[number, string, WeaponType, number, number, number, number, number]>;
   powerups: Array<[number, PowerupType, number, number]>;
@@ -259,7 +259,7 @@ export class ServerWorld {
         round(player.state.angle), round(player.state.energy), round(player.shield),
         round(player.tripleTimer), round(player.missileTimer), round(player.laserTimer),
         round(player.respawnTimer), round(player.transit?.remaining ?? 0),
-        player.lastSequence,
+        player.lastSequence, inputMask(player.input),
       ]),
       bullets: this.bullets.map((bullet) => [
         bullet.id, bullet.state.owner, bullet.weapon,
@@ -589,6 +589,14 @@ export class ServerWorld {
 
 function emptyInput(): FlightInput {
   return { thrust: false, reverse: false, turnLeft: false, turnRight: false, boost: false };
+}
+
+function inputMask(input: FlightInput): number {
+  return Number(input.thrust) |
+    (Number(input.reverse) << 1) |
+    (Number(input.turnLeft) << 2) |
+    (Number(input.turnRight) << 3) |
+    (Number(input.boost) << 4);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

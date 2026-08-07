@@ -27,6 +27,7 @@ canvas {
 .enemy-hud,
 .session-panel,
 .chat-panel,
+.voice-panel,
 .powerup-tray,
 .diagnostics,
 .paused {
@@ -207,6 +208,30 @@ dd {
 
 .chat-panel.powerups-active {
   bottom: 144px;
+}
+
+.voice-panel {
+  position: fixed;
+  top: 24px;
+  left: 28px;
+  z-index: 2;
+  width: 178px;
+  padding: 9px 10px;
+  border: 1px solid rgb(49 79 100 / 72%);
+  background: rgb(7 11 16 / 72%);
+  color: #7890a5;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(4px);
+}
+
+.voice-panel .chat-heading {
+  margin-bottom: 6px;
+  font-size: 9px;
+}
+
+.voice-panel .voice-controls {
+  margin-top: 0;
 }
 
 .powerup-tray {
@@ -551,6 +576,26 @@ kbd {
   box-shadow: 0 0 24px rgb(73 196 255 / 32%), inset 0 0 12px rgb(73 196 255 / 14%);
   outline: none;
   transform: translateY(-2px);
+}
+
+.live-leave {
+  position: fixed;
+  right: 24px;
+  bottom: 72px;
+  z-index: 4;
+  padding: 7px 9px;
+  border: 1px solid rgb(83 104 122 / 72%);
+  background: rgb(7 14 23 / 82%);
+  color: #8da6ba;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
+
+.live-leave:hover,
+.live-leave:focus-visible {
+  border-color: #bcecff;
+  color: #dcecff;
+  outline: none;
 }
 
 .controls-modal {
@@ -923,6 +968,60 @@ kbd {
   grid-template-columns: 1fr;
 }
 
+.room-list {
+  display: grid;
+  gap: 7px;
+  max-height: min(340px, 42vh);
+  margin: 12px 0 4px;
+  overflow-y: auto;
+  scrollbar-color: #326886 transparent;
+}
+
+.room-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #294d65;
+  background: rgb(5 15 27 / 78%);
+}
+
+.room-list-item > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.room-list-item strong {
+  color: #e5faff;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+}
+
+.room-list-item span {
+  color: #7894ac;
+  font-size: 9px;
+  letter-spacing: 0.07em;
+}
+
+.lobby .room-list-item button {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 7px 9px;
+  font-size: 9px;
+}
+
+.lobby .room-list-empty {
+  margin: 8px 0;
+  padding: 18px 10px;
+  border: 1px dashed #294d65;
+  color: #69849a;
+  font-size: 9px;
+  text-align: center;
+  letter-spacing: 0.09em;
+}
+
 .powerup-options label {
   display: flex;
   align-items: flex-start;
@@ -1150,6 +1249,11 @@ kbd {
     width: calc(100vw - 36px);
   }
 
+  .voice-panel {
+    top: 18px;
+    left: 18px;
+  }
+
   .chat-panel.powerups-active {
     bottom: 154px;
   }
@@ -1163,6 +1267,11 @@ kbd {
   .help-button {
     right: 18px;
     bottom: 18px;
+  }
+
+  .live-leave {
+    right: 18px;
+    bottom: 68px;
   }
 
   .controls-modal {

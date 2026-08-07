@@ -51,10 +51,10 @@ app.innerHTML = `
     </div>
     <ul id="roster"></ul>
   </section>
-  <section id="chat-panel" class="chat-panel hidden" aria-label="Room communications">
-    <div class="chat-heading"><span>COMMS</span><span id="voice-status">VOICE OFF</span></div>
-    <div id="chat-log" class="chat-log" role="log" aria-live="polite" aria-label="Chat messages"></div>
-    <form id="chat-form" class="chat-form">
+  <section id="chat-panel" class="voice-panel hidden" aria-label="Voice chat controls">
+    <div class="chat-heading"><span>VOICE</span><span id="voice-status">VOICE OFF</span></div>
+    <div id="chat-log" class="chat-log hidden" role="log" aria-live="polite" aria-label="Chat messages"></div>
+    <form id="chat-form" class="chat-form hidden">
       <input id="chat-input" maxlength="300" autocomplete="off" placeholder="MESSAGE…" aria-label="Chat message" />
       <button type="submit">SEND</button>
     </form>
@@ -101,6 +101,7 @@ app.innerHTML = `
     <p>Settings affect only your local ship.</p>
   </aside>
   <button id="help-button" class="help-button" type="button" aria-label="Open controls" aria-haspopup="dialog" aria-controls="controls-modal" aria-expanded="false">?</button>
+  <button id="live-leave" class="live-leave hidden" type="button">LEAVE MATCH</button>
   <section id="controls-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
     <div class="controls-card">
       <div class="controls-heading">
@@ -149,6 +150,8 @@ app.innerHTML = `
         <p>Establish a new combat sector, join an active frequency, or enter solo simulation.</p>
         <button id="open-create-menu" type="button"><span>CREATE GAME</span><small>HOST</small></button>
         <button id="open-join-menu" class="secondary" type="button"><span>JOIN GAME</span><small>CODE</small></button>
+        <button id="open-rooms-menu" class="secondary" type="button"><span>PUBLIC GAMES</span><small>LIST</small></button>
+        <button id="quick-match" class="secondary" type="button"><span>QUICK MATCH</span><small>AUTO</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
@@ -186,6 +189,14 @@ app.innerHTML = `
             <input id="create-wormholes" type="checkbox" checked />
             <span><strong>WORMHOLES</strong><small>Periodically opens linked rifts that transport ships across the arena.</small></span>
           </label>
+          <label>
+            <input id="create-public" type="checkbox" checked />
+            <span><strong>PUBLIC GAME</strong><small>Lists this game in the public room browser and allows Quick Match to find it.</small></span>
+          </label>
+          <label>
+            <input id="create-join-progress" type="checkbox" checked />
+            <span><strong>ALLOW JOIN IN PROGRESS</strong><small>Allows additional pilots to enter after the match has reached two players.</small></span>
+          </label>
         </div>
         <label for="create-room-code">ROOM CODE</label>
         <div class="arcade-input-frame">
@@ -204,6 +215,14 @@ app.innerHTML = `
           <input id="room-code" maxlength="48" autocomplete="off" placeholder="ALPHA-7" />
         </div>
         <button id="join-room" type="button"><span>JOIN SECTOR</span><small>1P</small></button>
+      </div>
+      <div id="lobby-rooms-menu" class="lobby-menu-view hidden">
+        <button class="lobby-back" data-lobby-back type="button">‹ BACK</button>
+        <h2>PUBLIC GAMES</h2>
+        <p>Select a live global match or use Quick Match to find the best available room.</p>
+        <button id="rooms-quick-match" type="button"><span>QUICK MATCH</span><small>AUTO</small></button>
+        <div id="room-list" class="room-list" aria-live="polite"></div>
+        <button id="refresh-rooms" class="secondary" type="button"><span>REFRESH LIST</span><small>↻</small></button>
       </div>
       <output id="connection-message">SYSTEM READY // INSERT CALLSIGN</output>
     </div>
@@ -478,9 +497,11 @@ let collidedThisFrame = false;
 let weaponCooldown = 0;
 let respawnTimer = 0;
 let joined = false;
+let netConnected = false;
 let offline = false;
 let serverAuthorityActive = false;
 let serverFallbackActive = false;
+let logicalRoomMode = false;
 let hasReceivedServerSnapshot = false;
 let lastServerSnapshotAt = 0;
 let serverInputSequence = 0;
@@ -488,6 +509,8 @@ let serverInputElapsed = 0;
 let lastServerInputMask = -1;
 let lastServerFire = false;
 let activeRoom = "";
+let activeRoomCode = "";
+let activeRoomStream = "";
 let activeChannel = "";
 let voiceJoined = false;
 let voiceJoinToken = 0;
@@ -508,6 +531,22 @@ let activeGameSettings: GameSettings = {
   wormholes: true,
 };
 let isGameCreator = false;
+let pendingRoomRequest = false;
+let roomRequestToken = 0;
+const currentRoomPlayerIds = new Set<string>();
+const unknownEnemyNumbers = new Map<string, number>();
+let unknownEnemyCounter = 0;
+
+interface PublicRoomListing {
+  code: string;
+  players: number;
+  capacity: number;
+  map: ArenaMapId;
+  active: boolean;
+  allowJoinInProgress: boolean;
+}
+
+let publicRoomListings: PublicRoomListing[] = [];
 
 const input: FlightInput = {
   thrust: false,
@@ -550,8 +589,14 @@ const lobbyCard = getElement<HTMLElement>("lobby-card");
 const lobbyMainMenu = getElement<HTMLElement>("lobby-main-menu");
 const lobbyCreateMenu = getElement<HTMLElement>("lobby-create-menu");
 const lobbyJoinMenu = getElement<HTMLElement>("lobby-join-menu");
+const lobbyRoomsMenu = getElement<HTMLElement>("lobby-rooms-menu");
 const openCreateMenuButton = getElement<HTMLButtonElement>("open-create-menu");
 const openJoinMenuButton = getElement<HTMLButtonElement>("open-join-menu");
+const openRoomsMenuButton = getElement<HTMLButtonElement>("open-rooms-menu");
+const quickMatchButton = getElement<HTMLButtonElement>("quick-match");
+const roomsQuickMatchButton = getElement<HTMLButtonElement>("rooms-quick-match");
+const refreshRoomsButton = getElement<HTMLButtonElement>("refresh-rooms");
+const roomList = getElement<HTMLElement>("room-list");
 const createRoomButton = getElement<HTMLButtonElement>("create-room");
 const createRoomCodeInput = getElement<HTMLInputElement>("create-room-code");
 const createMapSelect = getElement<HTMLSelectElement>("create-map");
@@ -560,6 +605,8 @@ const createTripleInput = getElement<HTMLInputElement>("create-triple");
 const createMissileInput = getElement<HTMLInputElement>("create-missile");
 const createLaserInput = getElement<HTMLInputElement>("create-laser");
 const createWormholesInput = getElement<HTMLInputElement>("create-wormholes");
+const createPublicInput = getElement<HTMLInputElement>("create-public");
+const createJoinProgressInput = getElement<HTMLInputElement>("create-join-progress");
 const roomCodeInput = getElement<HTMLInputElement>("room-code");
 const joinButton = getElement<HTMLButtonElement>("join-room");
 const offlineButton = getElement<HTMLButtonElement>("offline-mode");
@@ -578,6 +625,7 @@ const chatForm = getElement<HTMLFormElement>("chat-form");
 const chatInput = getElement<HTMLInputElement>("chat-input");
 const voiceStatus = getElement<HTMLElement>("voice-status");
 const voiceToggle = getElement<HTMLButtonElement>("voice-toggle");
+const liveLeaveButton = getElement<HTMLButtonElement>("live-leave");
 const portalsNet = window.Portals?.net;
 const portalsVoice = window.Portals?.voice;
 
@@ -614,6 +662,10 @@ openCreateMenuButton.addEventListener("click", () => {
   setLobbyMenu("create");
 });
 openJoinMenuButton.addEventListener("click", () => setLobbyMenu("join"));
+openRoomsMenuButton.addEventListener("click", () => void openRoomBrowser());
+quickMatchButton.addEventListener("click", () => void quickMatch());
+roomsQuickMatchButton.addEventListener("click", () => void quickMatch());
+refreshRoomsButton.addEventListener("click", () => void refreshRoomDirectory());
 document.querySelectorAll<HTMLButtonElement>("[data-lobby-back]").forEach((button) => {
   button.addEventListener("click", () => setLobbyMenu("main"));
 });
@@ -632,6 +684,7 @@ roomCodeInput.addEventListener("keydown", (event) => {
 
 offlineButton.addEventListener("click", () => startOffline());
 getElement<HTMLButtonElement>("leave-room").addEventListener("click", () => leaveRoom());
+liveLeaveButton.addEventListener("click", () => leaveRoom());
 addCpuButton.addEventListener("click", () => spawnCpu());
 removeCpuButton.addEventListener("click", () => removeCpu());
 chatForm.addEventListener("submit", (event) => {
@@ -660,6 +713,10 @@ if (!portalsNet) {
   connectionMessage.textContent = "PORTALS SDK UNAVAILABLE — OFFLINE PRACTICE ONLY";
   joinButton.disabled = true;
   createRoomButton.disabled = true;
+  openRoomsMenuButton.disabled = true;
+  quickMatchButton.disabled = true;
+  roomsQuickMatchButton.disabled = true;
+  refreshRoomsButton.disabled = true;
 }
 
 const heldKeys = new Set<string>();
@@ -730,16 +787,16 @@ function setupVoiceEvents(): void {
   }
   renderVoiceOff();
   portalsVoice.on("participantjoin", (_participant, _participants) => {
-    if (joined && portalsNet) updateRoster(portalsNet.players());
+    refreshCurrentRoster();
   });
   portalsVoice.on("participantleave", (participant, _participants) => {
     speakingIds.delete(participant.id);
-    if (joined && portalsNet) updateRoster(portalsNet.players());
+    refreshCurrentRoster();
   });
   portalsVoice.on("speaking", (ids) => {
     speakingIds.clear();
     for (const id of ids) speakingIds.add(id);
-    if (joined && portalsNet) updateRoster(portalsNet.players());
+    refreshCurrentRoster();
   });
   portalsVoice.on("status", (status) => {
     if (status !== "disconnected") return;
@@ -747,7 +804,7 @@ function setupVoiceEvents(): void {
     speakingIds.clear();
     renderVoiceOff();
     if (joined && portalsNet) {
-      updateRoster(portalsNet.players());
+      refreshCurrentRoster();
       appendChatSystem("VOICE DISCONNECTED — TRY ENABLE VOICE");
     }
   });
@@ -766,7 +823,7 @@ async function startVoice(channel: string): Promise<void> {
     }
     voiceJoined = true;
     speakingIds.clear();
-    if (portalsNet) updateRoster(portalsNet.players());
+    refreshCurrentRoster();
     // Voice is receive-ready, but microphone transmission is always opt-in.
     portalsVoice.setMuted(true);
     renderVoiceLive(true);
@@ -825,15 +882,17 @@ function renderVoiceLive(muted: boolean): void {
   voiceToggle.disabled = false;
 }
 
-function setLobbyMenu(view: "main" | "create" | "join"): void {
-  lobbyCard.classList.toggle("create-dialog", view === "create");
+function setLobbyMenu(view: "main" | "create" | "join" | "rooms"): void {
+  lobbyCard.classList.toggle("create-dialog", view === "create" || view === "rooms");
   lobbyMainMenu.classList.toggle("hidden", view !== "main");
   lobbyCreateMenu.classList.toggle("hidden", view !== "create");
   lobbyJoinMenu.classList.toggle("hidden", view !== "join");
+  lobbyRoomsMenu.classList.toggle("hidden", view !== "rooms");
   connectionMessage.textContent = portalsNet
     ? "SYSTEM READY // INSERT CALLSIGN"
     : "PORTALS SDK UNAVAILABLE — OFFLINE PRACTICE ONLY";
   if (view === "join") window.setTimeout(() => roomCodeInput.focus(), 0);
+  if (view === "rooms") renderRoomDirectory();
 }
 
 function generateRoomCode(): string {
@@ -856,28 +915,39 @@ async function createGame(): Promise<void> {
     map,
     powerups,
     wormholes: createWormholesInput.checked,
+  }, {
+    isPublic: createPublicInput.checked,
+    allowJoinInProgress: createJoinProgressInput.checked,
   });
 }
 
 function setupMultiplayerEvents(): void {
   if (!portalsNet) return;
   portalsNet.on("message", handleNetworkMessage);
-  portalsNet.on("playerjoin", (_player, players) => {
-    updateRoster(players);
-  });
-  portalsNet.on("playerleave", (player, players) => {
+  portalsNet.on("playerjoin", () => {});
+  portalsNet.on("playerleave", (player) => {
     speakingIds.delete(player.id);
-    removeRemotePilot(player.id);
-    updateRoster(players);
+    if (currentRoomPlayerIds.delete(player.id)) {
+      removeRemotePilot(player.id);
+      refreshCurrentRoster();
+    }
   });
   portalsNet.on("status", (status) => {
     console.info("Portals multiplayer status", status);
     if (status !== "disconnected") return;
     joined = false;
+    netConnected = false;
+    pendingRoomRequest = false;
+    roomRequestToken += 1;
     resetServerAuthorityState();
     activeChannel = "";
+    activeRoomCode = "";
+    activeRoomStream = "";
+    currentRoomPlayerIds.clear();
+    resetUnknownEnemyNumbers();
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
     showLobby();
+    liveLeaveButton.classList.add("hidden");
     clearRemotePilots();
     clearExplosions();
     resetPowerupState();
@@ -887,15 +957,24 @@ function setupMultiplayerEvents(): void {
     setChatVisible(false);
   });
   portalsNet.on("state", (key, value) => {
-    if (!joined || key !== "server:ready" || !isRecord(value)) return;
-    serverAuthorityActive = value.authority === "server";
-    if (serverAuthorityActive && !hasReceivedServerSnapshot) {
-      connectionMessage.textContent = "SERVER READY — SYNCHRONIZING…";
+    if (key === "server:rooms") {
+      receiveRoomDirectory(value);
+      return;
+    }
+    if (key === "server:ready" && isRecord(value)) {
+      serverAuthorityActive = value.authority === "server";
+      if (joined && serverAuthorityActive && !hasReceivedServerSnapshot) {
+        connectionMessage.textContent = "SERVER READY — SYNCHRONIZING…";
+      }
     }
   });
 }
 
-async function joinRoom(rawCode: string, createdSettings?: GameSettings): Promise<void> {
+async function joinRoom(
+  rawCode: string,
+  createdSettings?: GameSettings,
+  options?: { isPublic: boolean; allowJoinInProgress: boolean },
+): Promise<void> {
   if (!portalsNet) return;
   const code = normalizeRoomCode(rawCode);
   if (!code) {
@@ -907,49 +986,17 @@ async function joinRoom(rawCode: string, createdSettings?: GameSettings): Promis
   createRoomButton.disabled = true;
   offlineButton.disabled = true;
   connectionMessage.textContent = "CONNECTING…";
-  const channel = `global:vectorfall-${code}`;
   isGameCreator = Boolean(createdSettings);
-  applyGameSettings(
-    createdSettings ?? {
-      map: "classic",
-      powerups: ["shield", "triple", "missile", "laser"],
-      wormholes: true,
-    },
-    false,
-  );
   try {
-    const session = await portalsNet.join({ channel });
-    localId = session.self.id;
-    activeRoom = code.toUpperCase();
-    activeChannel = channel;
-    joined = true;
-    offline = false;
-    resetServerAuthorityState();
-    serverAuthorityActive = isRecord(session.state["server:ready"]);
-    lastServerSnapshotAt = performance.now();
-    networkAccumulator = networkInterval;
-    resetPowerupState();
-    resetWormholeState();
-    clearRemotePilots();
-    clearBullets();
-    clearLaserBeams();
-    clearExplosions();
-    localVisual.group.visible = false;
-    respawnTimer = 1;
-    updateRoster(session.players);
-    if (isGameCreator) portalsNet.send({ k: "config", settings: createdSettings });
-    roomName.textContent = activeRoom;
-    sessionPanel.classList.remove("practice-session");
-    sessionPanel.classList.remove("hidden");
-    practiceControls.classList.add("hidden");
-    lobby.classList.add("hidden");
-    clearChat();
-    setChatVisible(true);
-    appendChatSystem(`CONNECTED TO ${activeRoom}`);
-    void startVoice(channel);
-    connectionMessage.textContent = serverAuthorityActive
-      ? "SERVER READY — SYNCHRONIZING…"
-      : "WAITING FOR GAME SERVER…";
+    await ensureGlobalConnection();
+    connectionMessage.textContent = createdSettings ? "CREATING GAME…" : "JOINING GAME…";
+    queueRoomRequest(createdSettings ? {
+      k: "create-room",
+      room: code,
+      settings: createdSettings,
+      public: options?.isPublic !== false,
+      joinInProgress: options?.allowJoinInProgress !== false,
+    } : { k: "join-room", room: code });
   } catch (error) {
     isGameCreator = false;
     const detail = describeError(error);
@@ -961,7 +1008,7 @@ async function joinRoom(rawCode: string, createdSettings?: GameSettings): Promis
       error,
       detail,
       embeddedInPortalsHost: window.parent !== window,
-      channel,
+      room: code,
     });
   } finally {
     joinButton.disabled = false;
@@ -970,7 +1017,177 @@ async function joinRoom(rawCode: string, createdSettings?: GameSettings): Promis
   }
 }
 
+async function ensureGlobalConnection(): Promise<void> {
+  if (!portalsNet) throw new Error("Portals multiplayer unavailable");
+  if (netConnected && portalsNet.self()) {
+    localId = portalsNet.self()!.id;
+    return;
+  }
+  const session = await portalsNet.join({ channel: "global:vectorfall" });
+  netConnected = true;
+  localId = session.self.id;
+  serverAuthorityActive = isRecord(session.state["server:ready"]);
+  receiveRoomDirectory(session.state["server:rooms"]);
+}
+
+async function openRoomBrowser(): Promise<void> {
+  setLobbyMenu("rooms");
+  await refreshRoomDirectory();
+}
+
+async function refreshRoomDirectory(): Promise<void> {
+  if (!portalsNet) return;
+  refreshRoomsButton.disabled = true;
+  connectionMessage.textContent = "CONTACTING GLOBAL DIRECTORY…";
+  try {
+    await ensureGlobalConnection();
+    receiveRoomDirectory(portalsNet.getState("server:rooms"));
+    connectionMessage.textContent = "GLOBAL DIRECTORY ONLINE";
+  } catch (error) {
+    connectionMessage.textContent = `DIRECTORY UNAVAILABLE — ${describeError(error)}`;
+  } finally {
+    refreshRoomsButton.disabled = false;
+  }
+}
+
+async function quickMatch(): Promise<void> {
+  if (!portalsNet || pendingRoomRequest) return;
+  connectionMessage.textContent = "SEARCHING FOR MATCH…";
+  try {
+    await ensureGlobalConnection();
+    isGameCreator = false;
+    queueRoomRequest({ k: "matchmake" });
+  } catch (error) {
+    connectionMessage.textContent = `MATCHMAKING UNAVAILABLE — ${describeError(error)}`;
+  }
+}
+
+function receiveRoomDirectory(value: unknown): void {
+  if (!Array.isArray(value)) return;
+  publicRoomListings = value.flatMap((row): PublicRoomListing[] => {
+    if (
+      !Array.isArray(row) || typeof row[0] !== "string" ||
+      !Number.isInteger(row[1]) || !Number.isInteger(row[2]) ||
+      !isArenaMapId(row[3]) || (row[4] !== 0 && row[4] !== 1) ||
+      (row[5] !== 0 && row[5] !== 1)
+    ) return [];
+    return [{
+      code: row[0],
+      players: row[1],
+      capacity: row[2],
+      map: row[3],
+      active: row[4] === 1,
+      allowJoinInProgress: row[5] === 1,
+    }];
+  });
+  renderRoomDirectory();
+}
+
+function queueRoomRequest(payload: Record<string, unknown>): void {
+  if (!portalsNet) return;
+  pendingRoomRequest = true;
+  roomRequestToken += 1;
+  const token = roomRequestToken;
+  let attempts = 0;
+  const sendAttempt = (): void => {
+    if (!pendingRoomRequest || token !== roomRequestToken || !portalsNet) return;
+    attempts += 1;
+    portalsNet.send(payload);
+    if (attempts >= 6) {
+      window.setTimeout(() => {
+        if (!pendingRoomRequest || token !== roomRequestToken) return;
+        pendingRoomRequest = false;
+        connectionMessage.textContent = "GAME SERVER UNAVAILABLE — TRY AGAIN OR PRACTICE OFFLINE";
+      }, 500);
+      return;
+    }
+    window.setTimeout(sendAttempt, 500);
+  };
+  sendAttempt();
+}
+
+function renderRoomDirectory(): void {
+  roomList.replaceChildren();
+  if (publicRoomListings.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "room-list-empty";
+    empty.textContent = netConnected ? "NO PUBLIC GAMES — QUICK MATCH WILL CREATE ONE" : "CONNECT TO LOAD PUBLIC GAMES";
+    roomList.append(empty);
+    return;
+  }
+  for (const room of publicRoomListings) {
+    const row = document.createElement("article");
+    row.className = "room-list-item";
+    const details = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = room.code.toUpperCase();
+    const meta = document.createElement("span");
+    const joinable = room.players < room.capacity && (!room.active || room.allowJoinInProgress);
+    meta.textContent = `${room.map.toUpperCase()} · ${room.players}/${room.capacity} · ${room.active ? "IN PROGRESS" : "WAITING"}`;
+    details.append(title, meta);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = joinable ? "JOIN" : "LOCKED";
+    button.disabled = !joinable;
+    button.addEventListener("click", () => void joinRoom(room.code));
+    row.append(details, button);
+    roomList.append(row);
+  }
+}
+
+function completeServerRoomJoin(data: Record<string, unknown>): void {
+  if (data.to !== localId || typeof data.room !== "string" || typeof data.stream !== "string") return;
+  const settings = readClientGameSettings(data.settings);
+  if (!settings) return;
+  pendingRoomRequest = false;
+  roomRequestToken += 1;
+  activeRoomCode = normalizeRoomCode(data.room);
+  activeRoomStream = data.stream.slice(0, 96);
+  activeRoom = activeRoomCode.toUpperCase();
+  activeChannel = `global:vectorfall-${activeRoomCode}`;
+  joined = true;
+  offline = false;
+  resetServerAuthorityState();
+  logicalRoomMode = true;
+  serverAuthorityActive = true;
+  lastServerSnapshotAt = performance.now();
+  applyGameSettings(settings, false);
+  resetPowerupState();
+  resetWormholeState();
+  clearRemotePilots();
+  clearBullets();
+  clearLaserBeams();
+  clearExplosions();
+  currentRoomPlayerIds.clear();
+  resetUnknownEnemyNumbers();
+  localVisual.group.visible = false;
+  respawnTimer = 1;
+  roomName.textContent = activeRoom;
+  sessionPanel.classList.remove("practice-session");
+  sessionPanel.classList.add("hidden");
+  liveLeaveButton.classList.remove("hidden");
+  practiceControls.classList.add("hidden");
+  lobby.classList.add("hidden");
+  clearChat();
+  setChatVisible(true);
+  appendChatSystem(`CONNECTED TO ${activeRoom}`);
+  void startVoice(activeChannel);
+  connectionMessage.textContent = "SERVER READY — SYNCHRONIZING…";
+}
+
+function readClientGameSettings(value: unknown): GameSettings | null {
+  if (!isRecord(value) || !isArenaMapId(value.map) || !Array.isArray(value.powerups)) return null;
+  return {
+    map: value.map,
+    powerups: value.powerups.filter(isPowerupType),
+    wormholes: value.wormholes !== false,
+  };
+}
+
 function startOffline(): void {
+  if (joined && portalsNet) portalsNet.send({ k: "leave-room" });
+  pendingRoomRequest = false;
+  roomRequestToken += 1;
   stopVoice();
   activeChannel = "";
   clearChat();
@@ -985,6 +1202,10 @@ function startOffline(): void {
     wormholes: true,
   }, false);
   localId = "local";
+  activeRoomCode = "";
+  activeRoomStream = "";
+  currentRoomPlayerIds.clear();
+  resetUnknownEnemyNumbers();
   activeRoom = "OFFLINE";
   clearRemotePilots();
   clearExplosions();
@@ -995,14 +1216,15 @@ function startOffline(): void {
   roomName.textContent = "OFFLINE";
   sessionPanel.classList.add("practice-session");
   sessionPanel.classList.remove("hidden");
+  liveLeaveButton.classList.add("hidden");
   practiceControls.classList.remove("hidden");
   lobby.classList.add("hidden");
 }
 
 function leaveRoom(): void {
-  if (joined) void portalsNet?.leave().catch((error: unknown) => {
-    console.warn("Portals multiplayer leave failed", error);
-  });
+  if (joined && portalsNet) portalsNet.send({ k: "leave-room" });
+  pendingRoomRequest = false;
+  roomRequestToken += 1;
   stopVoice();
   activeChannel = "";
   clearChat();
@@ -1012,6 +1234,10 @@ function leaveRoom(): void {
   resetServerAuthorityState();
   isGameCreator = false;
   activeRoom = "";
+  activeRoomCode = "";
+  activeRoomStream = "";
+  currentRoomPlayerIds.clear();
+  resetUnknownEnemyNumbers();
   clearRemotePilots();
   clearBullets();
   clearLaserBeams();
@@ -1022,6 +1248,7 @@ function leaveRoom(): void {
   practiceControls.classList.add("hidden");
   sessionPanel.classList.remove("practice-session");
   sessionPanel.classList.add("hidden");
+  liveLeaveButton.classList.add("hidden");
   showLobby();
 }
 
@@ -1062,9 +1289,20 @@ function updateRoster(players: PortalsPlayer[]): void {
   playerCount.textContent = String(players.length);
 }
 
+function refreshCurrentRoster(): void {
+  if (!joined || !portalsNet) return;
+  const players = portalsNet.players().filter((player) => currentRoomPlayerIds.has(player.id));
+  const self = portalsNet.self();
+  if (self && currentRoomPlayerIds.has(self.id) && !players.some((player) => player.id === self.id)) {
+    players.unshift(self);
+  }
+  updateRoster(players);
+}
+
 function resetServerAuthorityState(): void {
   serverAuthorityActive = false;
   serverFallbackActive = false;
+  logicalRoomMode = false;
   hasReceivedServerSnapshot = false;
   lastServerSnapshotAt = 0;
   serverInputSequence = 0;
@@ -1074,12 +1312,26 @@ function resetServerAuthorityState(): void {
 }
 
 function handleNetworkMessage(data: unknown, fromId: string): void {
-  if (!joined || !isRecord(data)) return;
+  if (!isRecord(data)) return;
+  if (data.k === "room-joined") {
+    completeServerRoomJoin(data);
+    return;
+  }
+  if (data.k === "room-error" && data.to === localId && typeof data.message === "string") {
+    pendingRoomRequest = false;
+    roomRequestToken += 1;
+    isGameCreator = false;
+    connectionMessage.textContent = data.message.slice(0, 100).toUpperCase();
+    return;
+  }
+  if (!joined) return;
   if (data.k === "s" && data.sv === 1) {
+    if (data.r !== activeRoomStream) return;
     receiveServerSnapshot(data);
     return;
   }
   if (data.kind === "chat") {
+    if (data.room !== activeRoomStream) return;
     receiveChatMessage(fromId, data);
     return;
   }
@@ -1136,7 +1388,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   const seenShips = new Set<string>();
   for (const row of data.ships) {
     if (!isServerShipRow(row)) continue;
-    const [id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser, respawn, transit] = row;
+    const [id, x, y, vx, vy, angle, energy, shield, triple, missile, activeLaser, respawn, transit, _lastSequence, inputMask] = row;
     seenShips.add(id);
     if (id === localId) {
       const mustSnap = firstSnapshot || respawnTimer > 0 || wormholeTransit !== null;
@@ -1176,8 +1428,8 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
       tripleShotTimer: triple,
       homingMissileTimer: missile,
       laserTimer: activeLaser,
-      thrusting: false,
-      boosting: false,
+      thrusting: Boolean(inputMask & 1),
+      boosting: Boolean(inputMask & 1) && Boolean(inputMask & 16),
       respawning: respawn > 0,
       transiting: transit > 0,
     });
@@ -1185,6 +1437,9 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
   for (const id of [...remotePilots.keys()]) {
     if (!seenShips.has(id)) removeRemotePilot(id);
   }
+  currentRoomPlayerIds.clear();
+  for (const id of seenShips) currentRoomPlayerIds.add(id);
+  refreshCurrentRoster();
 
   const seenBullets = new Set<number>();
   for (const row of data.bullets) {
@@ -1270,7 +1525,7 @@ function processServerEvent(event: unknown): void {
 }
 
 function isServerShipRow(value: unknown): value is [string, ...number[]] {
-  return Array.isArray(value) && value.length >= 14 && typeof value[0] === "string" && value.slice(1, 14).every(isFiniteNumber);
+  return Array.isArray(value) && value.length >= 15 && typeof value[0] === "string" && value.slice(1, 15).every(isFiniteNumber);
 }
 
 function isServerBulletRow(value: unknown): value is [number, string, WeaponType, number, number, number, number, number] {
@@ -1289,7 +1544,7 @@ function sendChatMessage(): void {
   const text = chatInput.value.trim().slice(0, 300);
   chatInput.value = "";
   if (!text || !joined || !portalsNet) return;
-  portalsNet.send({ kind: "chat", text });
+  portalsNet.send({ kind: "chat", room: activeRoomStream, text });
   appendChatMessage(localId, chatDisplayName(localId), text);
 }
 
@@ -1304,6 +1559,28 @@ function chatDisplayName(id: string): string {
   const player = portalsNet?.players().find((candidate) => candidate.id === id)
     ?? (portalsNet?.self()?.id === id ? portalsNet.self() : null);
   return player?.displayName || `PILOT ${id.slice(0, 6)}`;
+}
+
+function multiplayerDisplayName(id: string): string | null {
+  const player = portalsNet?.players().find((candidate) => candidate.id === id)
+    ?? (portalsNet?.self()?.id === id ? portalsNet.self() : null);
+  const name = player?.displayName?.trim();
+  return name || null;
+}
+
+function unknownEnemyName(id: string): string {
+  let number = unknownEnemyNumbers.get(id);
+  if (number === undefined) {
+    unknownEnemyCounter += 1;
+    number = unknownEnemyCounter;
+    unknownEnemyNumbers.set(id, number);
+  }
+  return `Unkown Enemy ${number}`;
+}
+
+function resetUnknownEnemyNumbers(): void {
+  unknownEnemyNumbers.clear();
+  unknownEnemyCounter = 0;
 }
 
 function appendChatMessage(senderId: string, senderName: string, text: string): void {
@@ -3682,7 +3959,10 @@ function simulateHostedFixedStep(): void {
   sendServerInput();
   if (!hasReceivedServerSnapshot) {
     localVisual.group.visible = false;
-    if (performance.now() - lastServerSnapshotAt > 1500) activatePeerFallback();
+    if (performance.now() - lastServerSnapshotAt > 1500) {
+      if (logicalRoomMode) connectionMessage.textContent = "WAITING FOR SERVER SNAPSHOT…";
+      else activatePeerFallback();
+    }
     return;
   }
 
@@ -3710,7 +3990,8 @@ function simulateHostedFixedStep(): void {
   for (const pair of wormholePairs.values()) pair.age += fixedStep;
 
   if (lastServerSnapshotAt > 0 && performance.now() - lastServerSnapshotAt > 1500) {
-    activatePeerFallback();
+    if (logicalRoomMode) connectionMessage.textContent = "SERVER SYNC INTERRUPTED…";
+    else activatePeerFallback();
   }
 }
 
@@ -3880,7 +4161,12 @@ function updateEnemyEnergyHud(): void {
     0,
     100,
   );
-  const label = pilot.isCpu ? `CPU ${id.replace("cpu-", "")}` : `ENEMY ${id.slice(0, 6)}`;
+  const displayName = multiplayerDisplayName(id);
+  const label = pilot.isCpu
+    ? `CPU ${id.replace("cpu-", "")}`
+    : displayName
+      ? `Enemy ${displayName}`
+      : unknownEnemyName(id);
   enemyName.textContent = label;
   enemyEnergyValue.textContent = Math.round(pilot.state.energy).toString().padStart(3, "0");
   enemyEnergyFill.style.width = `${energyPercent}%`;
