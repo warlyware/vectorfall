@@ -1452,9 +1452,10 @@ kbd {
 
 @media (max-width: 980px) {
   .enemy-hud {
-    top: 62px;
+    top: 106px;
     right: 28px;
     left: auto;
+    width: min(300px, calc(100vw - 56px));
     transform: none;
   }
 }
