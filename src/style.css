@@ -1418,6 +1418,15 @@ kbd {
   display: none;
 }
 
+@media (max-width: 980px) {
+  .enemy-hud {
+    top: 62px;
+    right: 28px;
+    left: auto;
+    transform: none;
+  }
+}
+
 @media (max-width: 720px) {
   .hud {
     top: 18px;
@@ -1443,8 +1452,9 @@ kbd {
   }
 
   .enemy-hud {
-    top: 18px;
-    left: 18px;
+    top: 55px;
+    right: 18px;
+    left: auto;
     width: calc(50vw - 27px);
     min-width: 0;
     transform: none;
@@ -1480,7 +1490,7 @@ kbd {
   }
 
   .powerup-tray {
-    top: 65px;
+    top: 95px;
     right: 18px;
     bottom: auto;
     left: auto;
