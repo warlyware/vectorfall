@@ -280,7 +280,7 @@ app.innerHTML = `
         <button id="open-rooms-menu" class="secondary" type="button"><span>BROWSE GAMES</span><small>LIST</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
         <button id="how-to-play" class="secondary" type="button" aria-haspopup="dialog" aria-controls="how-to-play-modal" aria-expanded="false"><span>HOW TO PLAY</span><small>GUIDE</small></button>
-        <button id="login-to-change-name" class="secondary login-name-button hidden" type="button"><span>LOG IN TO CUSTOMIZE</span><small>PORTALS</small></button>
+        <button id="login-to-change-name" class="secondary login-name-button hidden" type="button"><span>LOGIN</span><small>CUSTOMIZE</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
         <button class="lobby-back" data-lobby-back type="button">‹ BACK</button>
