@@ -1838,6 +1838,12 @@ kbd {
 }
 
 @media (max-width: 720px) {
+  input:not([type="checkbox"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
   .mobile-controls {
     position: fixed;
     right: 0;
@@ -1855,23 +1861,79 @@ kbd {
     display: none;
   }
 
-  .mobile-flight-pad {
-    --touch-pad-size: clamp(46px, 15vw, 62px);
-    display: grid;
-    grid-template-columns: repeat(3, var(--touch-pad-size));
-    grid-template-rows: var(--touch-pad-size);
+  .mobile-joystick {
+    position: relative;
+    width: clamp(112px, 30vw, 142px);
+    height: clamp(112px, 30vw, 142px);
+    flex: 0 0 auto;
+    border: 1px solid rgb(105 221 255 / 58%);
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at center, rgb(32 118 151 / 18%) 0 31%, transparent 32%),
+      radial-gradient(circle at center, rgb(6 18 30 / 76%) 0 68%, rgb(5 13 24 / 46%) 69% 100%);
+    box-shadow: inset 0 0 25px rgb(65 193 238 / 12%), 0 0 18px rgb(32 166 220 / 12%);
     pointer-events: auto;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .mobile-flight-pad button {
-    width: var(--touch-pad-size);
-    height: var(--touch-pad-size);
-    border-radius: 12px;
+  .mobile-joystick::before,
+  .mobile-joystick::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    content: "";
+    background: rgb(105 221 255 / 12%);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
   }
 
-  .mobile-thrust { grid-area: 1 / 2; }
-  .mobile-left { grid-area: 1 / 1; }
-  .mobile-right { grid-area: 1 / 3; }
+  .mobile-joystick::before { width: 68%; height: 1px; }
+  .mobile-joystick::after { width: 1px; height: 68%; }
+
+  .mobile-joystick.active {
+    border-color: rgb(220 249 255 / 88%);
+    box-shadow: inset 0 0 30px rgb(65 193 238 / 20%), 0 0 24px rgb(32 166 220 / 22%);
+  }
+
+  .mobile-joystick-knob {
+    --joystick-x: 0px;
+    --joystick-y: 0px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 2;
+    width: 43%;
+    height: 43%;
+    border: 1px solid rgb(213 247 255 / 82%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgb(157 235 255 / 68%), rgb(18 89 119 / 92%) 72%);
+    box-shadow: inset 0 0 14px rgb(213 247 255 / 20%), 0 0 16px rgb(72 202 245 / 28%);
+    transform: translate3d(
+      calc(-50% + var(--joystick-x)),
+      calc(-50% + var(--joystick-y)),
+      0
+    );
+    transition: transform 90ms ease-out;
+    pointer-events: none;
+  }
+
+  .mobile-joystick.active .mobile-joystick-knob {
+    transition: none;
+  }
+
+  .joystick-direction {
+    position: absolute;
+    z-index: 1;
+    color: rgb(185 234 249 / 52%);
+    font-size: 13px;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .joystick-up { top: 8px; left: 50%; transform: translateX(-50%); }
+  .joystick-left { top: 50%; left: 8px; transform: translateY(-50%); }
+  .joystick-right { top: 50%; right: 8px; transform: translateY(-50%); }
 
   .mobile-actions {
     display: flex;

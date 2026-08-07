@@ -136,10 +136,11 @@ app.innerHTML = `
     <p>Settings affect only your local ship.</p>
   </aside>
   <section id="mobile-controls" class="mobile-controls hidden" aria-label="Touch flight controls">
-    <div class="mobile-flight-pad" aria-label="Movement controls">
-      <button class="mobile-thrust" data-touch-control="thrust" type="button" aria-label="Thrust">▲</button>
-      <button class="mobile-left" data-touch-control="turnLeft" type="button" aria-label="Turn left">↶</button>
-      <button class="mobile-right" data-touch-control="turnRight" type="button" aria-label="Turn right">↷</button>
+    <div id="mobile-joystick" class="mobile-joystick" role="group" aria-label="Drag up to thrust and sideways to turn">
+      <span class="joystick-direction joystick-up" aria-hidden="true">▲</span>
+      <span class="joystick-direction joystick-left" aria-hidden="true">↶</span>
+      <span class="joystick-direction joystick-right" aria-hidden="true">↷</span>
+      <div id="mobile-joystick-knob" class="mobile-joystick-knob" aria-hidden="true"></div>
     </div>
     <div class="mobile-actions" aria-label="Weapon controls">
       <button class="mobile-boost" data-touch-control="boost" type="button">BOOST</button>
@@ -194,7 +195,7 @@ app.innerHTML = `
             <div><kbd>SHIFT / RT</kbd><span>BOOST</span></div>
             <div><kbd>SPACE / A / RB</kbd><span>FIRE</span></div>
             <div><kbd>MOUSE WHEEL</kbd><span>ZOOM</span></div>
-            <div><kbd>ON-SCREEN BUTTONS</kbd><span>MOBILE</span></div>
+            <div><kbd>JOYSTICK / BUTTONS</kbd><span>MOBILE</span></div>
           </div>
         </section>
         <section>
@@ -843,6 +844,8 @@ const stateValue = getElement<HTMLElement>("state");
 const diagnosticsPanel = getElement<HTMLElement>("diagnostics");
 const pausedOverlay = getElement<HTMLElement>("paused");
 const mobileControls = getElement<HTMLElement>("mobile-controls");
+const mobileJoystick = getElement<HTMLElement>("mobile-joystick");
+const mobileJoystickKnob = getElement<HTMLElement>("mobile-joystick-knob");
 const helpButton = getElement<HTMLButtonElement>("help-button");
 const controlsModal = getElement<HTMLElement>("controls-modal");
 const closeControlsButton = getElement<HTMLButtonElement>("close-controls");
@@ -1074,16 +1077,18 @@ let gamepadSpectatorNextWasDown = false;
 let controlsModalOpen = false;
 let settingsModalOpen = false;
 let howToPlayModalOpen = false;
-type TouchControl = "thrust" | "turnLeft" | "turnRight" | "boost" | "fire";
+type TouchControl = "boost" | "fire";
 const touchControlPointers: Record<TouchControl, Set<number>> = {
-  thrust: new Set(),
-  turnLeft: new Set(),
-  turnRight: new Set(),
   boost: new Set(),
   fire: new Set(),
 };
+let joystickPointerId: number | null = null;
+let joystickThrust = false;
+let joystickTurnLeft = false;
+let joystickTurnRight = false;
 let touchFire = false;
 setupTouchControls();
+setupMobileJoystick();
 window.addEventListener("keydown", (event) => {
   arcadeAudio.unlock();
   if (resolvePilotNamePrompt) {
@@ -2976,9 +2981,9 @@ function updateInput(): void {
     return;
   }
   const touchBoosting = touchControlPointers.boost.size > 0;
-  input.thrust = heldKeys.has("KeyW") || heldKeys.has("ArrowUp") || gamepadThrust || touchControlPointers.thrust.size > 0 || touchBoosting;
-  input.turnLeft = heldKeys.has("KeyA") || heldKeys.has("ArrowLeft") || gamepadTurnLeft || touchControlPointers.turnLeft.size > 0;
-  input.turnRight = heldKeys.has("KeyD") || heldKeys.has("ArrowRight") || gamepadTurnRight || touchControlPointers.turnRight.size > 0;
+  input.thrust = heldKeys.has("KeyW") || heldKeys.has("ArrowUp") || gamepadThrust || joystickThrust || touchBoosting;
+  input.turnLeft = heldKeys.has("KeyA") || heldKeys.has("ArrowLeft") || gamepadTurnLeft || joystickTurnLeft;
+  input.turnRight = heldKeys.has("KeyD") || heldKeys.has("ArrowRight") || gamepadTurnRight || joystickTurnRight;
   input.boost = heldKeys.has("ShiftLeft") || heldKeys.has("ShiftRight") || gamepadBoost || touchBoosting;
 }
 
@@ -3007,8 +3012,68 @@ function setupTouchControls(): void {
   });
 }
 
+function setupMobileJoystick(): void {
+  const update = (event: PointerEvent): void => {
+    if (event.pointerId !== joystickPointerId) return;
+    const bounds = mobileJoystick.getBoundingClientRect();
+    const centerX = bounds.left + bounds.width / 2;
+    const centerY = bounds.top + bounds.height / 2;
+    const maximumDistance = bounds.width * 0.31;
+    const offsetX = event.clientX - centerX;
+    const offsetY = event.clientY - centerY;
+    const distance = Math.hypot(offsetX, offsetY);
+    const scale = distance > maximumDistance ? maximumDistance / distance : 1;
+    const limitedX = offsetX * scale;
+    const limitedY = offsetY * scale;
+    const horizontal = limitedX / maximumDistance;
+    const vertical = limitedY / maximumDistance;
+    const deadzone = 0.18;
+
+    mobileJoystickKnob.style.setProperty("--joystick-x", `${limitedX}px`);
+    mobileJoystickKnob.style.setProperty("--joystick-y", `${limitedY}px`);
+    joystickThrust = vertical < -deadzone;
+    joystickTurnLeft = horizontal < -deadzone;
+    joystickTurnRight = horizontal > deadzone;
+    updateInput();
+  };
+
+  const release = (event: PointerEvent): void => {
+    if (event.pointerId !== joystickPointerId) return;
+    joystickPointerId = null;
+    joystickThrust = false;
+    joystickTurnLeft = false;
+    joystickTurnRight = false;
+    mobileJoystick.classList.remove("active");
+    mobileJoystickKnob.style.setProperty("--joystick-x", "0px");
+    mobileJoystickKnob.style.setProperty("--joystick-y", "0px");
+    updateInput();
+  };
+
+  mobileJoystick.addEventListener("pointerdown", (event) => {
+    if (joystickPointerId !== null) return;
+    event.preventDefault();
+    arcadeAudio.unlock();
+    joystickPointerId = event.pointerId;
+    mobileJoystick.setPointerCapture(event.pointerId);
+    mobileJoystick.classList.add("active");
+    update(event);
+  });
+  mobileJoystick.addEventListener("pointermove", update);
+  mobileJoystick.addEventListener("pointerup", release);
+  mobileJoystick.addEventListener("pointercancel", release);
+  mobileJoystick.addEventListener("lostpointercapture", release);
+  mobileJoystick.addEventListener("contextmenu", (event) => event.preventDefault());
+}
+
 function resetTouchInput(): void {
   for (const pointers of Object.values(touchControlPointers)) pointers.clear();
+  joystickPointerId = null;
+  joystickThrust = false;
+  joystickTurnLeft = false;
+  joystickTurnRight = false;
+  mobileJoystick.classList.remove("active");
+  mobileJoystickKnob.style.setProperty("--joystick-x", "0px");
+  mobileJoystickKnob.style.setProperty("--joystick-y", "0px");
   touchFire = false;
   mobileControls.querySelectorAll(".pressed").forEach((button) => button.classList.remove("pressed"));
 }
