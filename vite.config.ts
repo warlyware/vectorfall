@@ -5,7 +5,6 @@ import { defineConfig, type Plugin } from "vite";
 const configPath = fileURLToPath(new URL("./src/flight-config.json", import.meta.url));
 const configKeys = [
   "thrust",
-  "reverseThrust",
   "turnSpeed",
   "maxSpeed",
   "boostMultiplier",

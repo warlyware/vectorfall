@@ -44,6 +44,22 @@ describe("authoritative server world", () => {
     expect(after[17]).toBe(17);
   });
 
+  it("ignores the retired reverse input bit", () => {
+    const world = new ServerWorld();
+    world.configure({ map: "open", powerups: [], wormholes: false });
+    world.addPlayer("pilot", 0);
+    const pilot = world.players.get("pilot")!;
+    pilot.state.position = { x: 0, y: 0 };
+    pilot.state.velocity = { x: 0, y: 0 };
+    pilot.state.angle = 0;
+
+    world.setInput("pilot", { q: 1, m: 2, f: false }, 0);
+    world.step(0.1, 100);
+
+    expect(pilot.state.velocity).toEqual({ x: 0, y: 0 });
+    expect(world.takeSnapshot().ships[0][17]).toBe(0);
+  });
+
   it("rejects stale input and caps a match at eight pilots", () => {
     const world = new ServerWorld();
     for (let index = 0; index < 8; index += 1) {

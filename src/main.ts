@@ -129,6 +129,17 @@ app.innerHTML = `
     <div id="tuning-controls"></div>
     <p>Settings affect only your local ship.</p>
   </aside>
+  <section id="mobile-controls" class="mobile-controls hidden" aria-label="Touch flight controls">
+    <div class="mobile-flight-pad" aria-label="Movement controls">
+      <button class="mobile-thrust" data-touch-control="thrust" type="button" aria-label="Thrust">▲</button>
+      <button class="mobile-left" data-touch-control="turnLeft" type="button" aria-label="Turn left">↶</button>
+      <button class="mobile-right" data-touch-control="turnRight" type="button" aria-label="Turn right">↷</button>
+    </div>
+    <div class="mobile-actions" aria-label="Weapon controls">
+      <button class="mobile-boost" data-touch-control="boost" type="button">BOOST</button>
+      <button class="mobile-fire" data-touch-control="fire" type="button">FIRE</button>
+    </div>
+  </section>
   <button id="help-button" class="help-button" type="button" aria-label="Open controls" aria-haspopup="dialog" aria-controls="controls-modal" aria-expanded="false">?</button>
   <button id="settings-button" class="settings-button" type="button" aria-label="Open settings" aria-haspopup="dialog" aria-controls="settings-modal" aria-expanded="false">⚙</button>
   <section id="controls-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
@@ -141,7 +152,7 @@ app.innerHTML = `
         <section>
           <h3>KEYBOARD / MOUSE</h3>
           <div class="control-list">
-            <div><kbd>WASD / ARROWS</kbd><span>FLY</span></div>
+            <div><kbd>W / A-D / ↑ ← →</kbd><span>FLY</span></div>
             <div><kbd>SHIFT</kbd><span>BOOST</span></div>
             <div><kbd>SPACE</kbd><span>FIRE</span></div>
             <div><kbd>WHEEL</kbd><span>ZOOM</span></div>
@@ -152,7 +163,7 @@ app.innerHTML = `
         <section>
           <h3>GAMEPAD</h3>
           <div class="control-list">
-            <div><kbd>LEFT STICK / D-PAD</kbd><span>FLY</span></div>
+            <div><kbd>STICK ↑ / D-PAD ↑ ← →</kbd><span>FLY</span></div>
             <div><kbd>RT</kbd><span>BOOST</span></div>
             <div><kbd>A / RB</kbd><span>FIRE</span></div>
             <div><kbd>MENU</kbd><span>PAUSE</span></div>
@@ -223,7 +234,6 @@ app.innerHTML = `
     <div class="arcade-brand">
       <span class="arcade-kicker">WARLYWARE PRESENTS</span>
       <h1 id="lobby-title"><span>VECTOR</span><span>FALL</span></h1>
-      <span class="arcade-version">VERSION ${packageMetadata.version}</span>
     </div>
     <div id="lobby-card" class="lobby-card" role="group" aria-label="Flight modes">
       <div id="lobby-main-menu" class="lobby-menu-view">
@@ -341,7 +351,7 @@ app.innerHTML = `
       </div>
       <output id="connection-message">SYSTEM READY // INSERT CALLSIGN</output>
     </div>
-    <div class="arcade-footer"><span>© VECTORFALL SYSTEMS</span><span>WASD / GAMEPAD READY</span></div>
+    <div class="arcade-footer"><span class="arcade-version">VERSION ${packageMetadata.version}</span><span>KEYBOARD / GAMEPAD READY</span></div>
   </section>
 `;
 
@@ -727,7 +737,6 @@ let publicRoomListings: PublicRoomListing[] = [];
 
 const input: FlightInput = {
   thrust: false,
-  reverse: false,
   turnLeft: false,
   turnRight: false,
   boost: false,
@@ -770,6 +779,7 @@ const positionValue = getElement<HTMLElement>("position");
 const stateValue = getElement<HTMLElement>("state");
 const diagnosticsPanel = getElement<HTMLElement>("diagnostics");
 const pausedOverlay = getElement<HTMLElement>("paused");
+const mobileControls = getElement<HTMLElement>("mobile-controls");
 const helpButton = getElement<HTMLButtonElement>("help-button");
 const controlsModal = getElement<HTMLElement>("controls-modal");
 const closeControlsButton = getElement<HTMLButtonElement>("close-controls");
@@ -867,7 +877,6 @@ const tuningFields: Array<{
   step: number;
 }> = [
   { key: "thrust", label: "Forward thrust", min: 60, max: 360, step: 5 },
-  { key: "reverseThrust", label: "Reverse thrust", min: 30, max: 240, step: 5 },
   { key: "turnSpeed", label: "Turn speed", min: 1, max: 6, step: 0.05 },
   { key: "maxSpeed", label: "Maximum speed", min: 100, max: 600, step: 5 },
   { key: "boostMultiplier", label: "Boost thrust", min: 1, max: 3, step: 0.05 },
@@ -974,7 +983,6 @@ if (!portalsNet) {
 const heldKeys = new Set<string>();
 let activeGamepadIndex: number | null = null;
 let gamepadThrust = false;
-let gamepadReverse = false;
 let gamepadTurnLeft = false;
 let gamepadTurnRight = false;
 let gamepadBoost = false;
@@ -984,6 +992,16 @@ let gamepadSpectatorPreviousWasDown = false;
 let gamepadSpectatorNextWasDown = false;
 let controlsModalOpen = false;
 let settingsModalOpen = false;
+type TouchControl = "thrust" | "turnLeft" | "turnRight" | "boost" | "fire";
+const touchControlPointers: Record<TouchControl, Set<number>> = {
+  thrust: new Set(),
+  turnLeft: new Set(),
+  turnRight: new Set(),
+  boost: new Set(),
+  fire: new Set(),
+};
+let touchFire = false;
+setupTouchControls();
 window.addEventListener("keydown", (event) => {
   arcadeAudio.unlock();
   if (event.code === "Escape" && settingsModalOpen) {
@@ -1008,7 +1026,7 @@ window.addEventListener("keydown", (event) => {
     if (!event.repeat) cycleSpectatedPlayer(event.code === "KeyA" || event.code === "ArrowLeft" ? -1 : 1);
     return;
   }
-  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
+  if (["ArrowUp", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
     event.preventDefault();
   }
   if (event.repeat && ["KeyP", "Backquote"].includes(event.code)) return;
@@ -1025,6 +1043,7 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => {
   heldKeys.clear();
   resetGamepadInput();
+  resetTouchInput();
   updateInput();
 });
 window.addEventListener("gamepadconnected", (event) => {
@@ -1582,6 +1601,7 @@ function showLobby(): void {
   lobby.classList.remove("hidden");
   sessionPanel.classList.add("hidden");
   settingsButton.classList.remove("hidden");
+  updateMobileControlsVisibility();
   resetMatchTimerView();
   setLobbyMenu("main");
 }
@@ -1597,6 +1617,16 @@ function resetSpectatorView(): void {
   spectatedPlayerId = "";
   spectatorHud.classList.add("hidden");
   playerHud.classList.remove("hidden");
+  updateMobileControlsVisibility();
+}
+
+function updateMobileControlsVisibility(): void {
+  const visible = (joined || offline) && !localSpectator;
+  mobileControls.classList.toggle("hidden", !visible);
+  if (!visible) {
+    resetTouchInput();
+    updateInput();
+  }
 }
 
 function normalizeRoomCode(value: string): string {
@@ -2032,6 +2062,7 @@ function setLeaderboardModalVisible(visible: boolean): void {
   if (visible) {
     heldKeys.clear();
     resetGamepadInput();
+    resetTouchInput();
     updateInput();
     renderLeaderboard();
     closeLeaderboardButton.focus();
@@ -2117,6 +2148,7 @@ function updateSpectatorView(): void {
     spectatedPlayerId = "";
     spectatorHud.classList.add("hidden");
     playerHud.classList.remove("hidden");
+    updateMobileControlsVisibility();
     return;
   }
   const targets = activeSpectatorTargets();
@@ -2130,6 +2162,7 @@ function updateSpectatorView(): void {
   playerHud.classList.add("hidden");
   powerupTray.classList.add("hidden");
   enemyHud.classList.add("hidden");
+  updateMobileControlsVisibility();
 }
 
 function cycleSpectatedPlayer(direction: -1 | 1): void {
@@ -2711,17 +2744,47 @@ function clearRemotePilots(): void {
 function updateInput(): void {
   if (localSpectator) {
     input.thrust = false;
-    input.reverse = false;
     input.turnLeft = false;
     input.turnRight = false;
     input.boost = false;
     return;
   }
-  input.thrust = heldKeys.has("KeyW") || heldKeys.has("ArrowUp") || gamepadThrust;
-  input.reverse = heldKeys.has("KeyS") || heldKeys.has("ArrowDown") || gamepadReverse;
-  input.turnLeft = heldKeys.has("KeyA") || heldKeys.has("ArrowLeft") || gamepadTurnLeft;
-  input.turnRight = heldKeys.has("KeyD") || heldKeys.has("ArrowRight") || gamepadTurnRight;
-  input.boost = heldKeys.has("ShiftLeft") || heldKeys.has("ShiftRight") || gamepadBoost;
+  const touchBoosting = touchControlPointers.boost.size > 0;
+  input.thrust = heldKeys.has("KeyW") || heldKeys.has("ArrowUp") || gamepadThrust || touchControlPointers.thrust.size > 0 || touchBoosting;
+  input.turnLeft = heldKeys.has("KeyA") || heldKeys.has("ArrowLeft") || gamepadTurnLeft || touchControlPointers.turnLeft.size > 0;
+  input.turnRight = heldKeys.has("KeyD") || heldKeys.has("ArrowRight") || gamepadTurnRight || touchControlPointers.turnRight.size > 0;
+  input.boost = heldKeys.has("ShiftLeft") || heldKeys.has("ShiftRight") || gamepadBoost || touchBoosting;
+}
+
+function setupTouchControls(): void {
+  mobileControls.querySelectorAll<HTMLButtonElement>("[data-touch-control]").forEach((button) => {
+    const control = button.dataset.touchControl as TouchControl;
+    const release = (event: PointerEvent): void => {
+      touchControlPointers[control].delete(event.pointerId);
+      button.classList.toggle("pressed", touchControlPointers[control].size > 0);
+      touchFire = touchControlPointers.fire.size > 0;
+      updateInput();
+    };
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      arcadeAudio.unlock();
+      button.setPointerCapture(event.pointerId);
+      touchControlPointers[control].add(event.pointerId);
+      button.classList.add("pressed");
+      touchFire = touchControlPointers.fire.size > 0;
+      updateInput();
+    });
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+    button.addEventListener("contextmenu", (event) => event.preventDefault());
+  });
+}
+
+function resetTouchInput(): void {
+  for (const pointers of Object.values(touchControlPointers)) pointers.clear();
+  touchFire = false;
+  mobileControls.querySelectorAll(".pressed").forEach((button) => button.classList.remove("pressed"));
 }
 
 function pollGamepad(): void {
@@ -2740,12 +2803,10 @@ function pollGamepad(): void {
   const horizontal = readGamepadAxis(gamepad.axes[0]);
   const vertical = readGamepadAxis(gamepad.axes[1]);
   const dpadUp = isGamepadButtonDown(gamepad, 12);
-  const dpadDown = isGamepadButtonDown(gamepad, 13);
   const dpadLeft = isGamepadButtonDown(gamepad, 14);
   const dpadRight = isGamepadButtonDown(gamepad, 15);
 
   gamepadThrust = vertical < -0.2 || dpadUp;
-  gamepadReverse = vertical > 0.2 || dpadDown;
   gamepadTurnLeft = horizontal < -0.2 || dpadLeft;
   gamepadTurnRight = horizontal > 0.2 || dpadRight;
   gamepadBoost = isGamepadButtonDown(gamepad, 7);
@@ -2791,7 +2852,6 @@ function readGamepadAxis(value: number | undefined): number {
 
 function resetGamepadInput(): void {
   gamepadThrust = false;
-  gamepadReverse = false;
   gamepadTurnLeft = false;
   gamepadTurnRight = false;
   gamepadBoost = false;
@@ -4753,6 +4813,7 @@ function setControlsModalVisible(visible: boolean): void {
   if (visible) {
     heldKeys.clear();
     resetGamepadInput();
+    resetTouchInput();
     updateInput();
     closeControlsButton.focus();
   } else {
@@ -4780,6 +4841,7 @@ function setSettingsModalVisible(visible: boolean): void {
       : activeGameSettings.map === "crossroads" ? "CROSSROADS" : "OPEN VOID";
     heldKeys.clear();
     resetGamepadInput();
+    resetTouchInput();
     updateInput();
     closeSettingsButton.focus();
   } else if (!settingsButton.classList.contains("hidden")) {
@@ -4871,7 +4933,6 @@ function flightConfigWithAfterburner(timer: number): FlightConfig {
   return {
     ...config,
     thrust: config.thrust * 1.55,
-    reverseThrust: config.reverseThrust * 1.3,
     maxSpeed: config.maxSpeed * 1.35,
     boostEnergyPerSecond: config.boostEnergyPerSecond * 0.7,
     energyRechargePerSecond: config.energyRechargePerSecond * 1.8,
@@ -4931,7 +4992,7 @@ function simulateFixedStep(): void {
     phaseTimer = Math.max(0, phaseTimer - fixedStep);
     afterburnerTimer = Math.max(0, afterburnerTimer - fixedStep);
     reflectorTimer = Math.max(0, reflectorTimer - fixedStep);
-    if ((heldKeys.has("Space") || gamepadFire) && weaponCooldown <= 0) {
+    if ((heldKeys.has("Space") || gamepadFire || touchFire) && weaponCooldown <= 0) {
       const weapon = activeWeapon(homingMissileTimer, laserTimer);
       if (weapon === "laser") {
         const fired = fireLaserVolley(ship, localId, tripleShotTimer > 0, true);
@@ -5106,11 +5167,10 @@ function sendServerInput(force = false): void {
   if (!joined || !portalsNet) return;
   const mask =
     Number(input.thrust) |
-    (Number(input.reverse) << 1) |
     (Number(input.turnLeft) << 2) |
     (Number(input.turnRight) << 3) |
     (Number(input.boost) << 4);
-  const firing = heldKeys.has("Space") || gamepadFire;
+  const firing = heldKeys.has("Space") || gamepadFire || touchFire;
   const changed = mask !== lastServerInputMask || firing !== lastServerFire;
   if (!force && serverInputElapsed < (changed ? 0.025 : 0.1)) return;
   serverInputElapsed = 0;
@@ -5419,7 +5479,7 @@ function renderWorld(frameDelta: number): void {
               ? "BOOST"
               : afterburnerTimer > 0
                 ? "AFTERBURN"
-              : input.thrust || input.reverse
+              : input.thrust
                 ? "THRUST"
                 : "DRIFT";
 
@@ -5766,7 +5826,7 @@ function createShipNameplate(): THREE.Sprite {
   const sprite = new THREE.Sprite(material);
   sprite.name = "ship-nameplate";
   sprite.renderOrder = 100;
-  sprite.scale.set(72, 13.5, 1);
+  sprite.scale.set(216, 40.5, 1);
   sprite.visible = false;
   sprite.userData.canvas = canvas;
   sprite.userData.label = "";
@@ -5781,13 +5841,6 @@ function setShipNameplateText(nameplate: THREE.Sprite, rawName: string): void {
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "rgba(3, 10, 18, 0.76)";
-  context.strokeStyle = "rgba(105, 221, 255, 0.55)";
-  context.lineWidth = 3;
-  context.beginPath();
-  context.roundRect(8, 10, canvas.width - 16, canvas.height - 20, 12);
-  context.fill();
-  context.stroke();
   let fontSize = 31;
   context.font = `600 ${fontSize}px SFMono-Regular, Consolas, monospace`;
   while (fontSize > 20 && context.measureText(label).width > canvas.width - 52) {
@@ -5812,7 +5865,9 @@ function disposeShipNameplate(nameplate: THREE.Sprite): void {
 
 function updateShipNameplate(visual: ShipVisual, name: string, position: Vec2): void {
   setShipNameplateText(visual.nameplate, name);
-  visual.nameplate.position.set(position.x, position.y + 34, 4);
+  const inverseZoom = 1 / camera.zoom;
+  visual.nameplate.scale.set(216 * inverseZoom, 40.5 * inverseZoom, 1);
+  visual.nameplate.position.set(position.x, position.y + 14 + 24 * inverseZoom, 4);
   visual.nameplate.visible = showPlayerNames && visual.group.visible;
 }
 

@@ -21,7 +21,6 @@ export interface BulletState {
 
 export interface FlightInput {
   thrust: boolean;
-  reverse: boolean;
   turnLeft: boolean;
   turnRight: boolean;
   boost: boolean;
@@ -34,7 +33,6 @@ export interface CpuCommand {
 
 export interface FlightConfig {
   thrust: number;
-  reverseThrust: number;
   turnSpeed: number;
   maxSpeed: number;
   boostMultiplier: number;
@@ -188,7 +186,6 @@ export function computeCpuCommand(
   return {
     input: {
       thrust: distance > 230 && aimError < 0.85,
-      reverse: distance < 135 && aimError < 0.65,
       turnLeft: angleError > 0.035,
       turnRight: angleError < -0.035,
       boost: distance > 500 && aimError < 0.3 && cpu.energy > config.maxEnergy * 0.45,
@@ -216,10 +213,6 @@ export function stepShip(
   if (input.thrust) {
     acceleration += config.thrust * (canBoost ? config.boostMultiplier : 1);
   }
-  if (input.reverse) {
-    acceleration -= config.reverseThrust;
-  }
-
   ship.velocity.x += forward.x * acceleration * deltaSeconds;
   ship.velocity.y += forward.y * acceleration * deltaSeconds;
 

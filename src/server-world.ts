@@ -118,7 +118,6 @@ const config = DEFAULT_FLIGHT_CONFIG;
 const afterburnerFlightConfig: FlightConfig = {
   ...config,
   thrust: config.thrust * 1.55,
-  reverseThrust: config.reverseThrust * 1.3,
   maxSpeed: config.maxSpeed * 1.35,
   boostEnergyPerSecond: config.boostEnergyPerSecond * 0.7,
   energyRechargePerSecond: config.energyRechargePerSecond * 1.8,
@@ -307,7 +306,6 @@ export class ServerWorld {
     player.lastInputAt = now;
     player.input = {
       thrust: Boolean(message.m & 1),
-      reverse: Boolean(message.m & 2),
       turnLeft: Boolean(message.m & 4),
       turnRight: Boolean(message.m & 8),
       boost: Boolean(message.m & 16),
@@ -962,12 +960,11 @@ export class ServerWorld {
 }
 
 function emptyInput(): FlightInput {
-  return { thrust: false, reverse: false, turnLeft: false, turnRight: false, boost: false };
+  return { thrust: false, turnLeft: false, turnRight: false, boost: false };
 }
 
 function inputMask(input: FlightInput): number {
   return Number(input.thrust) |
-    (Number(input.reverse) << 1) |
     (Number(input.turnLeft) << 2) |
     (Number(input.turnRight) << 3) |
     (Number(input.boost) << 4);

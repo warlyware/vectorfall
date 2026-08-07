@@ -1,6 +1,5 @@
 {
   "thrust": 245,
-  "reverseThrust": 105,
   "turnSpeed": 3.15,
   "maxSpeed": 355,
   "boostMultiplier": 1.8,

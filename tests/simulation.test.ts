@@ -17,7 +17,6 @@ import {
 
 const idleInput: FlightInput = {
   thrust: false,
-  reverse: false,
   turnLeft: false,
   turnRight: false,
   boost: false,
