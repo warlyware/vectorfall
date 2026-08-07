@@ -82,7 +82,7 @@ app.innerHTML = `
       <article id="missile-powerup-card" class="powerup-card missile-card hidden">
         <span class="powerup-card-icon">➤</span>
         <div class="powerup-card-details">
-          <div><strong>HOMING</strong><output id="missile-powerup-value">14.0s</output></div>
+          <div><strong>HOMING</strong><output id="missile-powerup-value">7.0s</output></div>
           <div class="powerup-card-track"><div id="missile-powerup-fill"></div></div>
         </div>
       </article>
@@ -498,8 +498,9 @@ const explosions: ExplosionEffect[] = [];
 const wormholeJumpEffects: WormholeJumpEffect[] = [];
 const shieldCapacity = 100;
 const tripleShotDuration = 18;
-const homingMissileDuration = 14;
+const homingMissileDuration = 7;
 const laserDuration = 12;
+const laserEnergyMultiplier = 1.2;
 const maxActivePowerups = 4;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -2446,7 +2447,7 @@ function fireLaserVolley(
   isLocal: boolean,
 ): boolean {
   const angleOffsets = tripleShot ? [-0.18, 0, 0.18] : [0];
-  const volleyCost = config.bulletEnergyCost * angleOffsets.length;
+  const volleyCost = config.bulletEnergyCost * laserEnergyMultiplier * angleOffsets.length;
   if (shipState.energy < volleyCost) return false;
   shipState.energy -= volleyCost;
   for (const angleOffset of angleOffsets) {

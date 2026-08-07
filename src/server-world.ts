@@ -93,8 +93,9 @@ const worldHeight = 1100;
 const fixedStep = 1 / 120;
 const shieldCapacity = 100;
 const tripleDuration = 18;
-const missileDuration = 14;
+const missileDuration = 7;
 const laserDuration = 12;
+const laserEnergyMultiplier = 1.2;
 const powerupRadius = 18;
 const powerupSpawnMinimum = 10;
 const powerupSpawnMaximum = 30;
@@ -348,7 +349,7 @@ export class ServerWorld {
       ? "laser"
       : player.missileTimer > 0 ? "missile" : "standard";
     const offsets = player.tripleTimer > 0 ? [-0.18, 0, 0.18] : [0];
-    const cost = config.bulletEnergyCost * offsets.length;
+    const cost = config.bulletEnergyCost * offsets.length * (weapon === "laser" ? laserEnergyMultiplier : 1);
     if (player.state.energy < cost) return;
     if (weapon !== "laser" && this.bullets.length + offsets.length > maxBullets) return;
     if (weapon === "laser") {

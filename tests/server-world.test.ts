@@ -63,6 +63,20 @@ describe("authoritative server world", () => {
     expect(snapshot.events).toContainEqual(["fire", "pilot", "standard", 1]);
   });
 
+  it("charges twenty percent more energy for a laser shot", () => {
+    const world = new ServerWorld();
+    world.configure({ map: "open", powerups: [], wormholes: false });
+    world.addPlayer("laser-pilot", 0);
+    world.takeSnapshot();
+    const pilot = world.players.get("laser-pilot")!;
+    pilot.laserTimer = 1;
+    pilot.state.energy = 100;
+    world.setInput("laser-pilot", { q: 1, m: 0, f: true }, 0);
+    world.step(0.009, 9);
+
+    expect(world.takeSnapshot().ships[0][6]).toBe(94);
+  });
+
   it("awards kills, penalizes deaths, and resets a completed top-score round", () => {
     const world = new ServerWorld();
     world.configure({
