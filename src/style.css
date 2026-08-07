@@ -1127,6 +1127,130 @@ kbd {
   letter-spacing: 0.16em;
 }
 
+.how-to-play-card {
+  width: min(760px, 100%);
+}
+
+.how-to-play-intro,
+.how-to-play-tip {
+  margin: 20px 0 0;
+  color: #91a9bd;
+  font-size: 11px;
+  line-height: 1.65;
+  letter-spacing: 0.06em;
+}
+
+.how-to-play-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-top: 20px;
+}
+
+.how-to-play-grid h3 {
+  margin: 0 0 12px;
+  color: #69ddff;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+}
+
+.how-to-play-modes {
+  display: grid;
+  gap: 7px;
+}
+
+.how-to-play-modes article {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  background: rgb(99 181 220 / 5%);
+}
+
+.how-to-play-modes strong {
+  color: #dff8ff;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}
+
+.how-to-play-modes span {
+  color: #71899c;
+  font-size: 10px;
+  line-height: 1.45;
+  letter-spacing: 0.035em;
+}
+
+.how-to-play-tip {
+  padding-top: 14px;
+  border-top: 1px solid rgb(105 221 255 / 16%);
+  color: #7895aa;
+}
+
+.pilot-name-modal {
+  z-index: 9;
+}
+
+.pilot-name-card {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 13px;
+}
+
+.pilot-name-card p {
+  margin: 5px 0 4px;
+  color: #8ca5b8;
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: 0.05em;
+}
+
+.pilot-name-card label {
+  color: #69ddff;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
+.pilot-name-card input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #326886;
+  outline: none;
+  background: rgb(1 7 17 / 84%);
+  color: #effcff;
+  font: 13px "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.12em;
+}
+
+.pilot-name-card input:focus {
+  border-color: #69ddff;
+  box-shadow: 0 0 12px rgb(64 206 255 / 22%);
+}
+
+#pilot-name-error {
+  min-height: 14px;
+  color: #ff7892;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+#confirm-pilot-name {
+  justify-self: stretch;
+  padding: 10px 12px;
+  border: 1px solid #54d9ff;
+  background: linear-gradient(90deg, rgb(13 76 111 / 84%), rgb(23 28 67 / 84%));
+  color: #dff8ff;
+  font: 11px "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+}
+
+#confirm-pilot-name:hover,
+#confirm-pilot-name:focus-visible {
+  border-color: #dff8ff;
+  box-shadow: 0 0 15px rgb(67 208 255 / 25%);
+  outline: none;
+}
+
 .control-list {
   display: grid;
   gap: 2px;
@@ -1929,7 +2053,8 @@ kbd {
     padding: 20px;
   }
 
-  .controls-grid {
+  .controls-grid,
+  .how-to-play-grid {
     grid-template-columns: 1fr;
     gap: 22px;
   }

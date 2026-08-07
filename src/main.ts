@@ -178,6 +178,49 @@ app.innerHTML = `
       </div>
     </div>
   </section>
+  <section id="how-to-play-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="how-to-play-title">
+    <div class="controls-card how-to-play-card">
+      <div class="controls-heading">
+        <div><span class="eyebrow">PILOT BRIEFING</span><h2 id="how-to-play-title">HOW TO PLAY</h2></div>
+        <button id="close-how-to-play" class="close-controls" type="button" aria-label="Close how to play">×</button>
+      </div>
+      <p class="how-to-play-intro">Fly, collect powerups, and destroy opposing ships. Kills award one point and deaths remove one point.</p>
+      <div class="how-to-play-grid">
+        <section>
+          <h3>CONTROLS</h3>
+          <div class="control-list">
+            <div><kbd>W / ↑</kbd><span>THRUST</span></div>
+            <div><kbd>A-D / ← →</kbd><span>STEER</span></div>
+            <div><kbd>SHIFT / RT</kbd><span>BOOST</span></div>
+            <div><kbd>SPACE / A / RB</kbd><span>FIRE</span></div>
+            <div><kbd>MOUSE WHEEL</kbd><span>ZOOM</span></div>
+            <div><kbd>ON-SCREEN BUTTONS</kbd><span>MOBILE</span></div>
+          </div>
+        </section>
+        <section>
+          <h3>GAME MODES</h3>
+          <div class="how-to-play-modes">
+            <article><strong>ENDLESS</strong><span>Continuous combat without a score or time limit.</span></article>
+            <article><strong>TOP SCORE</strong><span>The first pilot to reach the selected point target wins.</span></article>
+            <article><strong>TIMED MATCH</strong><span>The highest score at time expires wins. Tied leaders enter sudden death.</span></article>
+          </div>
+        </section>
+      </div>
+      <p class="how-to-play-tip">Collect glowing powerups for temporary weapons and defenses. Solid wormholes transport ships across the arena.</p>
+    </div>
+  </section>
+  <section id="pilot-name-modal" class="controls-modal pilot-name-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pilot-name-title">
+    <div class="controls-card pilot-name-card">
+      <div class="controls-heading">
+        <div><span class="eyebrow">GUEST IDENTIFICATION</span><h2 id="pilot-name-title">CHOOSE PILOT NAME</h2></div>
+      </div>
+      <p>Your temporary name will identify you for this game session.</p>
+      <label for="pilot-name-input">PILOT NAME</label>
+      <input id="pilot-name-input" type="text" maxlength="20" autocomplete="nickname" placeholder="ENTER NAME" />
+      <output id="pilot-name-error" aria-live="polite"></output>
+      <button id="confirm-pilot-name" type="button">CONTINUE</button>
+    </div>
+  </section>
   <section id="settings-modal" class="controls-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="controls-card settings-card">
       <div class="controls-heading">
@@ -247,6 +290,7 @@ app.innerHTML = `
         <button id="open-join-menu" class="secondary" type="button"><span>JOIN WITH CODE</span><small>CODE</small></button>
         <button id="open-rooms-menu" class="secondary" type="button"><span>BROWSE GAMES</span><small>LIST</small></button>
         <button id="offline-mode" class="secondary practice-button" type="button"><span>PRACTICE</span><small>CPU</small></button>
+        <button id="how-to-play" class="secondary" type="button" aria-haspopup="dialog" aria-controls="how-to-play-modal" aria-expanded="false"><span>HOW TO PLAY</span><small>GUIDE</small></button>
       </div>
       <div id="lobby-create-menu" class="lobby-menu-view hidden">
         <button class="lobby-back" data-lobby-back type="button">‹ BACK</button>
@@ -357,7 +401,7 @@ app.innerHTML = `
       </div>
       <output id="connection-message">SYSTEM READY // INSERT CALLSIGN</output>
     </div>
-    <div class="arcade-footer"><span class="arcade-version">VERSION ${packageMetadata.version}</span><span>KEYBOARD / GAMEPAD READY</span></div>
+    <div class="arcade-footer"><span class="arcade-version">VERSION ${packageMetadata.version}</span></div>
   </section>
 `;
 
@@ -435,6 +479,7 @@ interface ShipVisual {
   phaseField: THREE.Group;
   reflector: THREE.Group;
   nameplate: THREE.Sprite;
+  healthbar: THREE.Sprite;
 }
 
 type PowerupType =
@@ -581,10 +626,11 @@ interface ExplosionEffect {
   duration: number;
 }
 
+let config: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG };
 let showPlayerNames = loadPlayerNamesPreference();
 const localVisual = createShipVisual(0xe9f2ff, 0x75d7ff, 0x4bc8ff);
 localVisual.group.visible = false;
-scene.add(localVisual.group, localVisual.nameplate);
+scene.add(localVisual.group, localVisual.nameplate, localVisual.healthbar);
 
 const diagnosticsGroup = new THREE.Group();
 const velocityLine = makeLine(0x4bc8ff);
@@ -658,9 +704,17 @@ const wormholeColors = [
   0xffa85c,
 ];
 
-let config: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG };
 let localId = "local";
+let localPortalIdentity: PortalsPlayer | null = null;
+let temporaryPilotName = "";
+let pilotIdentityPromise: Promise<void> | null = null;
+let resolvePilotNamePrompt: ((name: string) => void) | null = null;
+const roomPilotNames = new Map<string, string>();
 let ship = createLocalShip();
+const previousLocalPosition: Vec2 = { ...ship.position };
+let previousLocalAngle = ship.angle;
+const renderedLocalPosition: Vec2 = { ...ship.position };
+let renderedLocalAngle = ship.angle;
 let shipShield = 0;
 let tripleShotTimer = 0;
 let homingMissileTimer = 0;
@@ -675,6 +729,7 @@ let weaponCooldown = 0;
 let respawnTimer = 0;
 let joined = false;
 let netConnected = false;
+let globalConnectionPromise: Promise<void> | null = null;
 let offline = false;
 let serverAuthorityActive = false;
 let serverFallbackActive = false;
@@ -791,6 +846,13 @@ const mobileControls = getElement<HTMLElement>("mobile-controls");
 const helpButton = getElement<HTMLButtonElement>("help-button");
 const controlsModal = getElement<HTMLElement>("controls-modal");
 const closeControlsButton = getElement<HTMLButtonElement>("close-controls");
+const howToPlayButton = getElement<HTMLButtonElement>("how-to-play");
+const howToPlayModal = getElement<HTMLElement>("how-to-play-modal");
+const closeHowToPlayButton = getElement<HTMLButtonElement>("close-how-to-play");
+const pilotNameModal = getElement<HTMLElement>("pilot-name-modal");
+const pilotNameInput = getElement<HTMLInputElement>("pilot-name-input");
+const pilotNameError = getElement<HTMLOutputElement>("pilot-name-error");
+const confirmPilotNameButton = getElement<HTMLButtonElement>("confirm-pilot-name");
 const tuningControls = getElement<HTMLElement>("tuning-controls");
 const lobby = getElement<HTMLElement>("lobby");
 const lobbyCard = getElement<HTMLElement>("lobby-card");
@@ -931,7 +993,7 @@ roomCodeInput.addEventListener("keydown", (event) => {
   void joinRoom(roomCodeInput.value);
 });
 
-offlineButton.addEventListener("click", () => startOffline());
+offlineButton.addEventListener("click", () => void startOfflineWithIdentity());
 getElement<HTMLButtonElement>("leave-room").addEventListener("click", () => leaveRoom());
 settingsButton.addEventListener("click", () => setSettingsModalVisible(true));
 closeSettingsButton.addEventListener("click", () => setSettingsModalVisible(false));
@@ -974,6 +1036,17 @@ closeControlsButton.addEventListener("click", () => setControlsModalVisible(fals
 controlsModal.addEventListener("pointerdown", (event) => {
   if (event.target === controlsModal) setControlsModalVisible(false);
 });
+howToPlayButton.addEventListener("click", () => setHowToPlayModalVisible(true));
+closeHowToPlayButton.addEventListener("click", () => setHowToPlayModalVisible(false));
+howToPlayModal.addEventListener("pointerdown", (event) => {
+  if (event.target === howToPlayModal) setHowToPlayModalVisible(false);
+});
+confirmPilotNameButton.addEventListener("click", submitTemporaryPilotName);
+pilotNameInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  submitTemporaryPilotName();
+});
 getElement<HTMLButtonElement>("reset-tuning").addEventListener("click", () => {
   config = { ...DEFAULT_FLIGHT_CONFIG };
   ship.energy = Math.min(ship.energy, config.maxEnergy);
@@ -1000,6 +1073,7 @@ let gamepadSpectatorPreviousWasDown = false;
 let gamepadSpectatorNextWasDown = false;
 let controlsModalOpen = false;
 let settingsModalOpen = false;
+let howToPlayModalOpen = false;
 type TouchControl = "thrust" | "turnLeft" | "turnRight" | "boost" | "fire";
 const touchControlPointers: Record<TouchControl, Set<number>> = {
   thrust: new Set(),
@@ -1012,6 +1086,15 @@ let touchFire = false;
 setupTouchControls();
 window.addEventListener("keydown", (event) => {
   arcadeAudio.unlock();
+  if (resolvePilotNamePrompt) {
+    if (event.code === "Escape") event.preventDefault();
+    return;
+  }
+  if (event.code === "Escape" && howToPlayModalOpen) {
+    event.preventDefault();
+    setHowToPlayModalVisible(false);
+    return;
+  }
   if (event.code === "Escape" && settingsModalOpen) {
     event.preventDefault();
     setSettingsModalVisible(false);
@@ -1027,7 +1110,7 @@ window.addEventListener("keydown", (event) => {
     setControlsModalVisible(false);
     return;
   }
-  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen) return;
+  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen || howToPlayModalOpen) return;
   if (isTextEntryTarget(event.target)) return;
   if (localSpectator && ["KeyA", "ArrowLeft", "KeyD", "ArrowRight"].includes(event.code)) {
     event.preventDefault();
@@ -1250,6 +1333,7 @@ function setupMultiplayerEvents(): void {
     if (status !== "disconnected") return;
     joined = false;
     netConnected = false;
+    globalConnectionPromise = null;
     pendingRoomRequest = false;
     roomRequestToken += 1;
     resetServerAuthorityState();
@@ -1257,6 +1341,7 @@ function setupMultiplayerEvents(): void {
     activeRoomCode = "";
     activeRoomStream = "";
     currentRoomPlayerIds.clear();
+    roomPilotNames.clear();
     resetUnknownEnemyNumbers();
     connectionMessage.textContent = "CONNECTION LOST — JOIN AGAIN";
     showLobby();
@@ -1296,6 +1381,7 @@ async function joinRoom(
   options?: { isPublic: boolean; allowJoinInProgress: boolean },
 ): Promise<void> {
   if (!portalsNet) return;
+  await ensurePilotIdentity();
   const code = normalizeRoomCode(rawCode);
   if (!code) {
     connectionMessage.textContent = "USE LETTERS, NUMBERS, DASHES, OR UNDERSCORES";
@@ -1340,14 +1426,26 @@ async function joinRoom(
 async function ensureGlobalConnection(): Promise<void> {
   if (!portalsNet) throw new Error("Portals multiplayer unavailable");
   if (netConnected && portalsNet.self()) {
-    localId = portalsNet.self()!.id;
+    localPortalIdentity = portalsNet.self();
+    localId = localPortalIdentity!.id;
     return;
   }
-  const session = await portalsNet.join({ channel: "global:vectorfall" });
-  netConnected = true;
-  localId = session.self.id;
-  serverAuthorityActive = isRecord(session.state["server:ready"]);
-  receiveRoomDirectory(session.state["server:rooms"]);
+  if (!globalConnectionPromise) {
+    globalConnectionPromise = (async () => {
+      const session = await portalsNet.join({ channel: "global:vectorfall" });
+      netConnected = true;
+      localPortalIdentity = session.self;
+      localId = session.self.id;
+      serverAuthorityActive = isRecord(session.state["server:ready"]);
+      receiveRoomDirectory(session.state["server:rooms"]);
+    })();
+  }
+  try {
+    await globalConnectionPromise;
+  } catch (error) {
+    globalConnectionPromise = null;
+    throw error;
+  }
 }
 
 async function openRoomBrowser(): Promise<void> {
@@ -1451,6 +1549,70 @@ function renderRoomDirectory(): void {
   }
 }
 
+async function startOfflineWithIdentity(): Promise<void> {
+  offlineButton.disabled = true;
+  try {
+    await ensurePilotIdentity();
+    startOffline();
+  } finally {
+    offlineButton.disabled = false;
+  }
+}
+
+function ensurePilotIdentity(): Promise<void> {
+  if (!pilotIdentityPromise) pilotIdentityPromise = resolvePilotIdentity();
+  return pilotIdentityPromise;
+}
+
+async function resolvePilotIdentity(): Promise<void> {
+  if (portalsNet) {
+    try {
+      await ensureGlobalConnection();
+    } catch (error) {
+      console.info("Portals identity unavailable; using a temporary pilot name", error);
+    }
+  }
+  localPortalIdentity = portalsNet?.self() ?? null;
+  const portalName = normalizePilotName(localPortalIdentity?.displayName ?? "");
+  if (localPortalIdentity?.playerId && portalName) return;
+  temporaryPilotName = await promptForTemporaryPilotName();
+}
+
+function promptForTemporaryPilotName(): Promise<string> {
+  if (temporaryPilotName) return Promise.resolve(temporaryPilotName);
+  pilotNameInput.value = "";
+  pilotNameError.textContent = "";
+  pilotNameModal.classList.remove("hidden");
+  window.setTimeout(() => pilotNameInput.focus(), 0);
+  return new Promise((resolve) => {
+    resolvePilotNamePrompt = resolve;
+  });
+}
+
+function submitTemporaryPilotName(): void {
+  const name = normalizePilotName(pilotNameInput.value);
+  if (!name) {
+    pilotNameError.textContent = "ENTER A PILOT NAME TO CONTINUE";
+    pilotNameInput.focus();
+    return;
+  }
+  temporaryPilotName = name;
+  pilotNameModal.classList.add("hidden");
+  pilotNameError.textContent = "";
+  const resolve = resolvePilotNamePrompt;
+  resolvePilotNamePrompt = null;
+  resolve?.(name);
+  if (joined) broadcastPilotProfile();
+}
+
+function normalizePilotName(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 20);
+}
+
 function completeServerRoomJoin(data: Record<string, unknown>): void {
   if (data.to !== localId || typeof data.room !== "string" || typeof data.stream !== "string") return;
   const settings = readClientGameSettings(data.settings);
@@ -1475,6 +1637,9 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   clearLaserBeams();
   clearExplosions();
   currentRoomPlayerIds.clear();
+  currentRoomPlayerIds.add(localId);
+  roomPilotNames.clear();
+  if (temporaryPilotName) roomPilotNames.set(localId, temporaryPilotName);
   resetUnknownEnemyNumbers();
   localVisual.group.visible = false;
   respawnTimer = 1;
@@ -1496,6 +1661,8 @@ function completeServerRoomJoin(data: Record<string, unknown>): void {
   setChatVisible(false);
   appendChatSystem(`CONNECTED TO ${activeRoom}`);
   connectionMessage.textContent = "SERVER READY — SYNCHRONIZING…";
+  broadcastPilotProfile();
+  portalsNet?.send({ kind: "pilot-profile-request", room: activeRoomStream });
 }
 
 function readClientGameSettings(value: unknown): GameSettings | null {
@@ -1542,6 +1709,7 @@ function startOffline(): void {
   activeRoomCode = "";
   activeRoomStream = "";
   currentRoomPlayerIds.clear();
+  roomPilotNames.clear();
   resetUnknownEnemyNumbers();
   activeRoom = "OFFLINE";
   clearRemotePilots();
@@ -1581,6 +1749,7 @@ function leaveRoom(): void {
   activeRoomCode = "";
   activeRoomStream = "";
   currentRoomPlayerIds.clear();
+  roomPilotNames.clear();
   resetUnknownEnemyNumbers();
   clearRemotePilots();
   clearBullets();
@@ -1641,11 +1810,30 @@ function normalizeRoomCode(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 48);
 }
 
+function broadcastPilotProfile(): void {
+  if (!joined || !portalsNet || !temporaryPilotName || !activeRoomStream) return;
+  roomPilotNames.set(localId, temporaryPilotName);
+  portalsNet.send({
+    kind: "pilot-profile",
+    room: activeRoomStream,
+    name: temporaryPilotName,
+  });
+}
+
+function receivePilotProfile(fromId: string, data: Record<string, unknown>): void {
+  if (data.room !== activeRoomStream || typeof data.name !== "string") return;
+  const name = normalizePilotName(data.name);
+  if (!name) return;
+  roomPilotNames.set(fromId, name);
+  refreshCurrentRoster();
+  renderLeaderboard();
+}
+
 function updateRoster(players: PortalsPlayer[]): void {
   roster.replaceChildren();
   if (offline) {
     const item = document.createElement("li");
-    item.textContent = "you (offline)";
+    item.textContent = `${localPilotDisplayName()} (offline)`;
     roster.append(item);
     let count = 1;
     for (const [id, pilot] of remotePilots) {
@@ -1660,7 +1848,7 @@ function updateRoster(players: PortalsPlayer[]): void {
   }
   for (const player of players) {
     const item = document.createElement("li");
-    const name = player.displayName || `pilot-${player.id.slice(0, 4)}`;
+    const name = multiplayerDisplayName(player.id) ?? unknownEnemyName(player.id);
     item.textContent = player.id === localId ? `${name} (you)` : name;
     item.classList.toggle("speaking", speakingIds.has(player.id));
     roster.append(item);
@@ -1704,6 +1892,14 @@ function handleNetworkMessage(data: unknown, fromId: string): void {
     return;
   }
   if (!joined) return;
+  if (data.kind === "pilot-profile") {
+    receivePilotProfile(fromId, data);
+    return;
+  }
+  if (data.kind === "pilot-profile-request") {
+    if (data.room === activeRoomStream) broadcastPilotProfile();
+    return;
+  }
   if (data.k === "s" && data.sv === 1) {
     if (data.r !== activeRoomStream) return;
     receiveServerSnapshot(data);
@@ -1802,6 +1998,7 @@ function receiveServerSnapshot(data: Record<string, unknown>): void {
         ship.velocity.x = vx;
         ship.velocity.y = vy;
         ship.angle = angle;
+        syncLocalRenderPose();
         snapVisualToState(localVisual, ship);
         cameraTarget.set(x, y, 0);
       } else {
@@ -2006,16 +2203,35 @@ function receiveChatMessage(fromId: string, data: Record<string, unknown>): void
 }
 
 function chatDisplayName(id: string): string {
-  const player = portalsNet?.players().find((candidate) => candidate.id === id)
-    ?? (portalsNet?.self()?.id === id ? portalsNet.self() : null);
-  return player?.displayName || `PILOT ${id.slice(0, 6)}`;
+  return multiplayerDisplayName(id) ?? `PILOT ${id.slice(0, 6)}`;
 }
 
 function multiplayerDisplayName(id: string): string | null {
-  const player = portalsNet?.players().find((candidate) => candidate.id === id)
-    ?? (portalsNet?.self()?.id === id ? portalsNet.self() : null);
-  const name = player?.displayName?.trim();
-  return name || null;
+  if (id === localId) return localPilotDisplayName();
+  const player = portalPlayer(id);
+  if (player?.playerId) {
+    const name = normalizePilotName(player.displayName ?? "");
+    if (name) return name;
+  }
+  return roomPilotNames.get(id) ?? null;
+}
+
+function localPilotDisplayName(): string {
+  const portalName = normalizePilotName(localPortalIdentity?.displayName ?? "");
+  if (localPortalIdentity?.playerId && portalName) return portalName;
+  return temporaryPilotName || portalName || "PILOT";
+}
+
+function portalPlayer(id: string): PortalsPlayer | null {
+  if (localPortalIdentity?.id === id) return localPortalIdentity;
+  return portalsNet?.players().find((candidate) => candidate.id === id) ?? null;
+}
+
+function isLoggedInPilot(id: string): boolean {
+  if (id === localId || localPortalIdentity?.id === id) {
+    return Boolean(localPortalIdentity?.playerId);
+  }
+  return Boolean(portalPlayer(id)?.playerId);
 }
 
 function unknownEnemyName(id: string): string {
@@ -2681,7 +2897,7 @@ function getOrCreateRemotePilot(id: string): RemotePilot {
   };
   visual.group.visible = false;
   remotePilots.set(id, pilot);
-  scene.add(visual.group, visual.nameplate);
+  scene.add(visual.group, visual.nameplate, visual.healthbar);
   return pilot;
 }
 
@@ -2715,7 +2931,7 @@ function spawnCpu(): void {
     spectator: false,
   };
   remotePilots.set(id, pilot);
-  scene.add(pilot.visual.group, pilot.visual.nameplate);
+  scene.add(pilot.visual.group, pilot.visual.nameplate, pilot.visual.healthbar);
   updateRoster([]);
 }
 
@@ -2737,8 +2953,10 @@ function createCpuShip(): ShipState {
 function removeRemotePilot(id: string): void {
   const pilot = remotePilots.get(id);
   if (!pilot) return;
-  scene.remove(pilot.visual.group, pilot.visual.nameplate);
+  scene.remove(pilot.visual.group, pilot.visual.nameplate, pilot.visual.healthbar);
   disposeShipNameplate(pilot.visual.nameplate);
+  disposeShipHealthbar(pilot.visual.healthbar);
+  roomPilotNames.delete(id);
   remotePilots.delete(id);
   for (let index = bullets.length - 1; index >= 0; index -= 1) {
     if (bullets[index].state.owner === id) removeBullet(index);
@@ -2796,7 +3014,7 @@ function resetTouchInput(): void {
 }
 
 function pollGamepad(): void {
-  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen) {
+  if (controlsModalOpen || settingsModalOpen || leaderboardModalOpen || howToPlayModalOpen || resolvePilotNamePrompt) {
     resetGamepadInput();
     updateInput();
     return;
@@ -2877,6 +3095,36 @@ function createLocalShip(): ShipState {
   return state;
 }
 
+function capturePreviousLocalPose(): void {
+  previousLocalPosition.x = ship.position.x;
+  previousLocalPosition.y = ship.position.y;
+  previousLocalAngle = ship.angle;
+}
+
+function syncLocalRenderPose(): void {
+  previousLocalPosition.x = ship.position.x;
+  previousLocalPosition.y = ship.position.y;
+  previousLocalAngle = ship.angle;
+  renderedLocalPosition.x = ship.position.x;
+  renderedLocalPosition.y = ship.position.y;
+  renderedLocalAngle = ship.angle;
+}
+
+function interpolateLocalRenderPose(alpha: number): void {
+  const amount = THREE.MathUtils.clamp(alpha, 0, 1);
+  renderedLocalPosition.x = THREE.MathUtils.lerp(
+    previousLocalPosition.x,
+    ship.position.x,
+    amount,
+  );
+  renderedLocalPosition.y = THREE.MathUtils.lerp(
+    previousLocalPosition.y,
+    ship.position.y,
+    amount,
+  );
+  renderedLocalAngle = previousLocalAngle + normalizeAngle(ship.angle - previousLocalAngle) * amount;
+}
+
 function findRandomSpawn(): { position: { x: number; y: number }; angle: number } {
   const margin = config.shipRadius + 8;
   const minX = -worldWidth / 2 + margin;
@@ -2912,6 +3160,7 @@ function findRandomSpawn(): { position: { x: number; y: number }; angle: number 
 
 function respawnLocalShip(): void {
   ship = createLocalShip();
+  syncLocalRenderPose();
   shipShield = 0;
   tripleShotTimer = 0;
   homingMissileTimer = 0;
@@ -3453,6 +3702,7 @@ function stepWormholes(): void {
     wormholeTransit.remaining = Math.max(0, wormholeTransit.remaining - fixedStep);
     if (wormholeTransit.remaining === 0) {
       teleportShipThroughWormhole(ship, wormholeTransit.destination);
+      syncLocalRenderPose();
       arcadeAudio.wormholeExit();
       wormholeTransit = null;
       wormholeCooldown = 0.4;
@@ -4829,6 +5079,21 @@ function setControlsModalVisible(visible: boolean): void {
   }
 }
 
+function setHowToPlayModalVisible(visible: boolean): void {
+  howToPlayModalOpen = visible;
+  howToPlayModal.classList.toggle("hidden", !visible);
+  howToPlayButton.setAttribute("aria-expanded", String(visible));
+  if (visible) {
+    heldKeys.clear();
+    resetGamepadInput();
+    resetTouchInput();
+    updateInput();
+    closeHowToPlayButton.focus();
+  } else {
+    howToPlayButton.focus();
+  }
+}
+
 function setSettingsModalVisible(visible: boolean): void {
   settingsModalOpen = visible;
   settingsModal.classList.toggle("hidden", !visible);
@@ -4875,8 +5140,10 @@ function savePlayerNamesPreference(visible: boolean): void {
 
 function updateAllNameplateVisibility(): void {
   localVisual.nameplate.visible = showPlayerNames && localVisual.group.visible;
+  localVisual.healthbar.visible = localVisual.group.visible;
   for (const pilot of remotePilots.values()) {
     pilot.visual.nameplate.visible = showPlayerNames && pilot.visual.group.visible;
+    pilot.visual.healthbar.visible = pilot.visual.group.visible;
   }
 }
 
@@ -4933,6 +5200,7 @@ function saveFlightConfig(): void {
 }
 
 const fixedStep = 1 / 120;
+const maxSimulationStepsPerFrame = 8;
 let accumulator = 0;
 let previousTime = performance.now();
 
@@ -4955,12 +5223,21 @@ function frame(time: number): void {
   if (!paused && (joined || offline)) {
     accumulator += frameDelta;
     collidedThisFrame = false;
-    while (accumulator >= fixedStep) {
+    let simulationSteps = 0;
+    while (accumulator >= fixedStep && simulationSteps < maxSimulationStepsPerFrame) {
+      capturePreviousLocalPose();
       simulateFixedStep();
       accumulator -= fixedStep;
+      simulationSteps += 1;
+    }
+    if (accumulator >= fixedStep) {
+      accumulator %= fixedStep;
     }
   }
 
+  interpolateLocalRenderPose(
+    !paused && (joined || offline) ? accumulator / fixedStep : 1,
+  );
   renderWorld(frameDelta);
   requestAnimationFrame(frame);
 }
@@ -5365,13 +5642,15 @@ function updateEnemyEnergyHud(): void {
 
 function renderWorld(frameDelta: number): void {
   const renderTime = performance.now() * 0.001;
-  localVisual.group.position.set(ship.position.x, ship.position.y, 1);
-  localVisual.group.rotation.z = ship.angle;
+  localVisual.group.position.set(renderedLocalPosition.x, renderedLocalPosition.y, 1);
+  localVisual.group.rotation.z = renderedLocalAngle;
   localVisual.group.visible = !localSpectator && respawnTimer === 0 && !wormholeTransit;
   updateShipNameplate(
     localVisual,
-    offline ? "You" : multiplayerDisplayName(localId) ?? "You",
-    ship.position,
+    localPilotDisplayName(),
+    renderedLocalPosition,
+    ship.energy,
+    pilotNameplateStyle(localId, false),
   );
   updateShieldVisual(localVisual, shipShield);
   updateShipPowerupVisuals(localVisual, phaseTimer, reflectorTimer, renderTime);
@@ -5410,6 +5689,8 @@ function renderWorld(frameDelta: number): void {
       pilot.visual,
       pilot.isCpu ? `CPU ${id.replace("cpu-", "")}` : multiplayerDisplayName(id) ?? unknownEnemyName(id),
       pilot.visual.group.position,
+      pilot.state.energy,
+      pilotNameplateStyle(id, pilot.isCpu),
     );
   }
 
@@ -5453,7 +5734,7 @@ function renderWorld(frameDelta: number): void {
     camera.position.x += (cameraTarget.x - camera.position.x) * jumpCameraLerp;
     camera.position.y += (cameraTarget.y - camera.position.y) * jumpCameraLerp;
   } else {
-    cameraTarget.set(ship.position.x, ship.position.y, 0);
+    cameraTarget.set(renderedLocalPosition.x, renderedLocalPosition.y, 0);
     const cameraLerp = 1 - Math.exp(-5 * frameDelta);
     camera.position.x += (cameraTarget.x - camera.position.x) * cameraLerp;
     camera.position.y += (cameraTarget.y - camera.position.y) * cameraLerp;
@@ -5464,13 +5745,13 @@ function renderWorld(frameDelta: number): void {
   }
   updateStarfield();
 
-  diagnosticsGroup.position.set(ship.position.x, ship.position.y, 2);
+  diagnosticsGroup.position.set(renderedLocalPosition.x, renderedLocalPosition.y, 2);
   collisionRing.scale.setScalar(config.shipRadius / DEFAULT_FLIGHT_CONFIG.shipRadius);
   (collisionRing.material as THREE.LineBasicMaterial).color.setHex(
     collidedThisFrame ? 0xff5577 : 0x77ffb0,
   );
   updateLine(velocityLine, ship.velocity.x * 0.35, ship.velocity.y * 0.35);
-  updateLine(headingLine, Math.cos(ship.angle) * 45, Math.sin(ship.angle) * 45);
+  updateLine(headingLine, Math.cos(renderedLocalAngle) * 45, Math.sin(renderedLocalAngle) * 45);
 
   updateEnergyBar(ship.energy, energyFill, energyOverchargeFill);
   energyValue.textContent = Math.round(ship.energy).toString().padStart(3, "0");
@@ -5732,6 +6013,7 @@ function createShieldSphereMaterial(): THREE.ShaderMaterial {
 function createShipVisual(fill: number, outline: number, exhaustColor: number): ShipVisual {
   const group = new THREE.Group();
   const nameplate = createShipNameplate();
+  const healthbar = createShipHealthbar();
   const shipWidthScale = 1.2;
   const shape = new THREE.Shape()
     .moveTo(18, 0)
@@ -5821,7 +6103,7 @@ function createShipVisual(fill: number, outline: number, exhaustColor: number): 
   reflector.visible = false;
 
   group.add(mesh, edges, exhaust, shield, phaseField, reflector);
-  return { group, exhaust, shield, phaseField, reflector, nameplate };
+  return { group, exhaust, shield, phaseField, reflector, nameplate, healthbar };
 }
 
 function createShipNameplate(): THREE.Sprite {
@@ -5847,10 +6129,27 @@ function createShipNameplate(): THREE.Sprite {
   return sprite;
 }
 
-function setShipNameplateText(nameplate: THREE.Sprite, rawName: string): void {
+interface PilotNameplateStyle {
+  color: string;
+  glow: string;
+}
+
+function pilotNameplateStyle(id: string, isCpu: boolean): PilotNameplateStyle {
+  if (isCpu) return { color: "#c4cbd1", glow: "rgba(196, 203, 209, 0.58)" };
+  if (isLoggedInPilot(id)) return { color: "#9fe8ff", glow: "rgba(105, 221, 255, 0.82)" };
+  return { color: "#ffffff", glow: "rgba(255, 255, 255, 0.68)" };
+}
+
+function setShipNameplateText(
+  nameplate: THREE.Sprite,
+  rawName: string,
+  style: PilotNameplateStyle,
+): void {
   const label = rawName.trim().slice(0, 28) || "UNKNOWN PILOT";
-  if (nameplate.userData.label === label) return;
+  const cacheKey = `${label}|${style.color}|${style.glow}`;
+  if (nameplate.userData.cacheKey === cacheKey) return;
   nameplate.userData.label = label;
+  nameplate.userData.cacheKey = cacheKey;
   const canvas = nameplate.userData.canvas as HTMLCanvasElement;
   const context = canvas.getContext("2d");
   if (!context) return;
@@ -5863,8 +6162,8 @@ function setShipNameplateText(nameplate: THREE.Sprite, rawName: string): void {
   }
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillStyle = "#dff8ff";
-  context.shadowColor = "rgba(105, 221, 255, 0.8)";
+  context.fillStyle = style.color;
+  context.shadowColor = style.glow;
   context.shadowBlur = 10;
   context.fillText(label, canvas.width / 2, canvas.height / 2 + 1);
   const material = nameplate.material as THREE.SpriteMaterial;
@@ -5877,12 +6176,96 @@ function disposeShipNameplate(nameplate: THREE.Sprite): void {
   material.dispose();
 }
 
-function updateShipNameplate(visual: ShipVisual, name: string, position: Vec2): void {
-  setShipNameplateText(visual.nameplate, name);
+function createShipHealthbar(): THREE.Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 32;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = "ship-healthbar";
+  sprite.renderOrder = 99;
+  sprite.scale.set(78, 9.75, 1);
+  sprite.visible = false;
+  sprite.userData.canvas = canvas;
+  sprite.userData.energy = Number.NaN;
+  setShipHealthbarEnergy(sprite, config.maxEnergy);
+  return sprite;
+}
+
+function setShipHealthbarEnergy(healthbar: THREE.Sprite, energy: number): void {
+  const displayedEnergy = Math.round(THREE.MathUtils.clamp(energy, 0, config.maxEnergy * 2));
+  if (healthbar.userData.energy === displayedEnergy) return;
+  healthbar.userData.energy = displayedEnergy;
+  const canvas = healthbar.userData.canvas as HTMLCanvasElement;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const x = 8;
+  const y = 8;
+  const width = canvas.width - x * 2;
+  const height = canvas.height - y * 2;
+  const basePercent = THREE.MathUtils.clamp(displayedEnergy / config.maxEnergy, 0, 1);
+  const overchargePercent = THREE.MathUtils.clamp(
+    (displayedEnergy - config.maxEnergy) / config.maxEnergy,
+    0,
+    1,
+  );
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(3, 10, 16, 0.9)";
+  context.fillRect(x, y, width, height);
+  context.strokeStyle = "rgba(173, 218, 240, 0.72)";
+  context.lineWidth = 2;
+  context.strokeRect(x, y, width, height);
+
+  context.save();
+  context.shadowBlur = 7;
+  context.shadowColor = basePercent < 0.25 ? "rgba(255, 85, 119, 0.85)" : "rgba(105, 221, 255, 0.78)";
+  context.fillStyle = basePercent < 0.25 ? "#ff5577" : "#69ddff";
+  context.fillRect(x + 2, y + 2, (width - 4) * basePercent, height - 4);
+  context.shadowColor = "rgba(85, 255, 209, 0.9)";
+  context.fillStyle = "#55ffd1";
+  context.fillRect(x + 2, y + 2, (width - 4) * overchargePercent, height - 4);
+  context.restore();
+
+  const material = healthbar.material as THREE.SpriteMaterial;
+  material.map!.needsUpdate = true;
+}
+
+function disposeShipHealthbar(healthbar: THREE.Sprite): void {
+  const material = healthbar.material as THREE.SpriteMaterial;
+  material.map?.dispose();
+  material.dispose();
+}
+
+function updateShipNameplate(
+  visual: ShipVisual,
+  name: string,
+  position: Vec2,
+  energy: number,
+  style: PilotNameplateStyle,
+): void {
+  setShipNameplateText(visual.nameplate, name, style);
+  setShipHealthbarEnergy(visual.healthbar, energy);
   const inverseZoom = 1 / camera.zoom;
   visual.nameplate.scale.set(216 * inverseZoom, 40.5 * inverseZoom, 1);
   visual.nameplate.position.set(position.x, position.y + 14 + 24 * inverseZoom, 4);
   visual.nameplate.visible = showPlayerNames && visual.group.visible;
+  visual.healthbar.scale.set(78 * inverseZoom, 9.75 * inverseZoom, 1);
+  visual.healthbar.position.set(
+    position.x,
+    position.y + 14 + (showPlayerNames ? 11 : 5) * inverseZoom,
+    4,
+  );
+  visual.healthbar.visible = visual.group.visible;
 }
 
 function createThrusterVisual(exhaustColor: number): THREE.Group {
@@ -6238,6 +6621,13 @@ function colorFromId(id: string): number {
   return colors[hashString(id) % colors.length];
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  previousTime = performance.now();
+  accumulator = 0;
+  syncLocalRenderPose();
+});
 window.addEventListener("resize", resize);
 resize();
 requestAnimationFrame(frame);
+void ensurePilotIdentity();
